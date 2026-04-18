@@ -354,8 +354,7 @@ export default function ProjectDetail() {
           display: flex; justify-content: space-between; align-items: center;
         }
         .brand { display: block; text-decoration: none; }
-.brand .logo { height: 36px; width: auto; max-width: 180px; display: block; object-fit: contain; }        .header-actions { display: flex; align-items: center; gap: 1rem; }
-        .icon-btn {
+.logo { height: 36px !important; width: auto !important; max-width: 180px !important; display: block; object-fit: contain; }        .icon-btn {
           background: transparent; border: 1px solid rgba(230, 233, 239, 0.15);
           color: #E6E9EF; width: 40px; height: 40px; border-radius: 10px;
           display: flex; align-items: center; justify-content: center;
