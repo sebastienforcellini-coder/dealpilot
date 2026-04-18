@@ -49,7 +49,12 @@ export default async function handler(req, res) {
       const fields = req.body;
 
       // Whitelist des champs modifiables
-      const allowed = ["name", "country", "city", "address", "property_type", "description", "status", "currency", "target_budget"];
+      const allowed = [
+        "name", "country", "city", "address", "property_type", "description",
+        "status", "currency", "target_budget",
+        "land_status", "melkia_reference", "requisition_number", "requisition_date",
+        "title_number", "title_date", "conservation_office", "land_notes"
+      ];
       const payload = {};
       for (const k of allowed) {
         if (k in fields) payload[k] = fields[k];
@@ -70,6 +75,14 @@ export default async function handler(req, res) {
       if ("status" in p) await sql`UPDATE projects SET status = ${p.status}, updated_at = NOW() WHERE id = ${projectId}`;
       if ("currency" in p) await sql`UPDATE projects SET currency = ${p.currency}, updated_at = NOW() WHERE id = ${projectId}`;
       if ("target_budget" in p) await sql`UPDATE projects SET target_budget = ${p.target_budget}, updated_at = NOW() WHERE id = ${projectId}`;
+      if ("land_status" in p) await sql`UPDATE projects SET land_status = ${p.land_status}, updated_at = NOW() WHERE id = ${projectId}`;
+      if ("melkia_reference" in p) await sql`UPDATE projects SET melkia_reference = ${p.melkia_reference}, updated_at = NOW() WHERE id = ${projectId}`;
+      if ("requisition_number" in p) await sql`UPDATE projects SET requisition_number = ${p.requisition_number}, updated_at = NOW() WHERE id = ${projectId}`;
+      if ("requisition_date" in p) await sql`UPDATE projects SET requisition_date = ${p.requisition_date || null}, updated_at = NOW() WHERE id = ${projectId}`;
+      if ("title_number" in p) await sql`UPDATE projects SET title_number = ${p.title_number}, updated_at = NOW() WHERE id = ${projectId}`;
+      if ("title_date" in p) await sql`UPDATE projects SET title_date = ${p.title_date || null}, updated_at = NOW() WHERE id = ${projectId}`;
+      if ("conservation_office" in p) await sql`UPDATE projects SET conservation_office = ${p.conservation_office}, updated_at = NOW() WHERE id = ${projectId}`;
+      if ("land_notes" in p) await sql`UPDATE projects SET land_notes = ${p.land_notes}, updated_at = NOW() WHERE id = ${projectId}`;
 
       const [project] = await sql`SELECT * FROM projects WHERE id = ${projectId}`;
       return res.json({ success: true, project });

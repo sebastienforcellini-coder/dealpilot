@@ -30,6 +30,15 @@ export default async function handler(req, res) {
     await sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'prospection'`;
     await sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS target_budget DECIMAL(14,2)`;
     await sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`;
+    // Champs statut foncier (principalement Maroc)
+    await sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS land_status VARCHAR(50)`;
+    await sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS melkia_reference TEXT`;
+    await sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS requisition_number TEXT`;
+    await sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS requisition_date DATE`;
+    await sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS title_number TEXT`;
+    await sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS title_date DATE`;
+    await sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS conservation_office TEXT`;
+    await sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS land_notes TEXT`;
     results.push("✅ Colonnes projects à jour");
 
     // 2. Table contacts (notaire, agent, architecte, banque, courtier, entreprise)

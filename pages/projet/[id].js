@@ -24,6 +24,15 @@ export default function ProjectDetail() {
     status: "prospection",
     currency: "MAD",
     target_budget: "",
+    // Statut foncier (Maroc principalement)
+    land_status: "",
+    melkia_reference: "",
+    requisition_number: "",
+    requisition_date: "",
+    title_number: "",
+    title_date: "",
+    conservation_office: "",
+    land_notes: "",
   });
 
   useEffect(() => {
@@ -97,6 +106,14 @@ export default function ProjectDetail() {
       status: p.status || "prospection",
       currency: p.currency || "MAD",
       target_budget: p.target_budget || "",
+      land_status: p.land_status || "",
+      melkia_reference: p.melkia_reference || "",
+      requisition_number: p.requisition_number || "",
+      requisition_date: p.requisition_date ? p.requisition_date.substring(0, 10) : "",
+      title_number: p.title_number || "",
+      title_date: p.title_date ? p.title_date.substring(0, 10) : "",
+      conservation_office: p.conservation_office || "",
+      land_notes: p.land_notes || "",
     });
     setShowEdit(true);
   };
@@ -117,6 +134,14 @@ export default function ProjectDetail() {
           status: editData.status,
           currency: editData.currency,
           target_budget: editData.target_budget ? Number(editData.target_budget) : null,
+          land_status: editData.land_status,
+          melkia_reference: editData.melkia_reference,
+          requisition_number: editData.requisition_number,
+          requisition_date: editData.requisition_date || null,
+          title_number: editData.title_number,
+          title_date: editData.title_date || null,
+          conservation_office: editData.conservation_office,
+          land_notes: editData.land_notes,
         }),
       });
       const json = await res.json();
@@ -354,6 +379,47 @@ export default function ProjectDetail() {
                     </ul>
                   )}
                 </div>
+
+                {/* CARD STATUT FONCIER (si pays = Maroc et au moins un champ rempli) */}
+                {(project.country || "").toLowerCase().includes("maroc") && (project.land_status || project.requisition_number || project.title_number || project.melkia_reference) && (
+                  <div className="info-card land-card">
+                    <h3>🇲🇦 Statut foncier</h3>
+
+                    {/* Timeline visuelle */}
+                    <div className="land-timeline">
+                      <div className={`land-step ${project.land_status === "melkia" || project.land_status === "requisition" || project.land_status === "titre" ? "step-done" : ""}`}>
+                        <div className="step-dot"></div>
+                        <span>Melkia</span>
+                      </div>
+                      <div className={`land-line ${project.land_status === "requisition" || project.land_status === "titre" ? "line-done" : ""}`}></div>
+                      <div className={`land-step ${project.land_status === "requisition" ? "step-current" : project.land_status === "titre" ? "step-done" : ""}`}>
+                        <div className="step-dot"></div>
+                        <span>Réquisition</span>
+                      </div>
+                      <div className={`land-line ${project.land_status === "titre" ? "line-done" : ""}`}></div>
+                      <div className={`land-step ${project.land_status === "titre" ? "step-done" : ""}`}>
+                        <div className="step-dot"></div>
+                        <span>Titre foncier</span>
+                      </div>
+                    </div>
+
+                    <dl className="info-list" style={{ marginTop: "1.25rem" }}>
+                      {project.melkia_reference && (<><dt>Réf. Melkia</dt><dd>{project.melkia_reference}</dd></>)}
+                      {project.requisition_number && (<><dt>N° réquisition</dt><dd>{project.requisition_number}</dd></>)}
+                      {project.requisition_date && (<><dt>Date réquisition</dt><dd>{new Date(project.requisition_date).toLocaleDateString("fr-FR")}</dd></>)}
+                      {project.title_number && (<><dt>N° titre foncier</dt><dd>{project.title_number}</dd></>)}
+                      {project.title_date && (<><dt>Date du titre</dt><dd>{new Date(project.title_date).toLocaleDateString("fr-FR")}</dd></>)}
+                      {project.conservation_office && (<><dt>Conservation</dt><dd>{project.conservation_office}</dd></>)}
+                    </dl>
+
+                    {project.land_notes && (
+                      <div className="land-notes">
+                        <span className="land-notes-label">Notes :</span>
+                        <p>{project.land_notes}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -499,6 +565,107 @@ export default function ProjectDetail() {
                     onChange={(e) => setEditData({ ...editData, description: e.target.value })}
                   />
                 </label>
+
+                {/* STATUT FONCIER MAROC */}
+                {(editData.country || "").toLowerCase().includes("maroc") && (
+                  <>
+                    <div className="section-divider">
+                      <span>🇲🇦 Statut foncier (Maroc)</span>
+                    </div>
+
+                    <label>
+                      <span>Statut foncier actuel</span>
+                      <select
+                        value={editData.land_status}
+                        onChange={(e) => setEditData({ ...editData, land_status: e.target.value })}
+                      >
+                        <option value="">— Non renseigné —</option>
+                        <option value="melkia">Melkia (non titré)</option>
+                        <option value="requisition">Réquisition en cours</option>
+                        <option value="titre">Titre foncier (immatriculé)</option>
+                      </select>
+                    </label>
+
+                    {(editData.land_status === "melkia" || editData.land_status === "requisition") && (
+                      <label>
+                        <span>Référence Melkia (acte adoulaire)</span>
+                        <input
+                          type="text"
+                          value={editData.melkia_reference}
+                          onChange={(e) => setEditData({ ...editData, melkia_reference: e.target.value })}
+                          placeholder="Numéro ou référence de l'acte"
+                        />
+                      </label>
+                    )}
+
+                    {(editData.land_status === "requisition" || editData.land_status === "titre") && (
+                      <div className="row">
+                        <label>
+                          <span>N° de réquisition</span>
+                          <input
+                            type="text"
+                            value={editData.requisition_number}
+                            onChange={(e) => setEditData({ ...editData, requisition_number: e.target.value })}
+                            placeholder="Ex: R 12345/24"
+                          />
+                        </label>
+                        <label>
+                          <span>Date de réquisition</span>
+                          <input
+                            type="date"
+                            value={editData.requisition_date}
+                            onChange={(e) => setEditData({ ...editData, requisition_date: e.target.value })}
+                          />
+                        </label>
+                      </div>
+                    )}
+
+                    {editData.land_status === "titre" && (
+                      <div className="row">
+                        <label>
+                          <span>N° de titre foncier</span>
+                          <input
+                            type="text"
+                            value={editData.title_number}
+                            onChange={(e) => setEditData({ ...editData, title_number: e.target.value })}
+                            placeholder="Ex: TF 98765/M"
+                          />
+                        </label>
+                        <label>
+                          <span>Date du titre</span>
+                          <input
+                            type="date"
+                            value={editData.title_date}
+                            onChange={(e) => setEditData({ ...editData, title_date: e.target.value })}
+                          />
+                        </label>
+                      </div>
+                    )}
+
+                    {editData.land_status && (
+                      <>
+                        <label>
+                          <span>Conservation foncière</span>
+                          <input
+                            type="text"
+                            value={editData.conservation_office}
+                            onChange={(e) => setEditData({ ...editData, conservation_office: e.target.value })}
+                            placeholder="Ex: Marrakech Médina"
+                          />
+                        </label>
+                        <label>
+                          <span>Notes foncières</span>
+                          <textarea
+                            rows="2"
+                            value={editData.land_notes}
+                            onChange={(e) => setEditData({ ...editData, land_notes: e.target.value })}
+                            placeholder="Clauses suspensives, bornage, observations, oppositions, etc."
+                          />
+                        </label>
+                      </>
+                    )}
+                  </>
+                )}
                 <div className="modal-actions">
                   <button type="button" className="btn-ghost" onClick={() => setShowEdit(false)}>
                     Annuler
@@ -821,6 +988,107 @@ export default function ProjectDetail() {
 
         .btn-danger:hover {
           background: #B91C1C;
+        }
+
+        /* SECTION DIVIDER (dans modal) */
+        .section-divider {
+          margin-top: 1rem;
+          padding-top: 1rem;
+          padding-bottom: 0.25rem;
+          border-top: 1px solid #EEF0F4;
+        }
+        .section-divider span {
+          color: #0B1320;
+          font-size: 0.85rem;
+          font-weight: 600;
+          letter-spacing: 0.05em;
+        }
+
+        /* CARD STATUT FONCIER */
+        .land-card {
+          grid-column: 1 / -1;
+          background: linear-gradient(135deg, #FFFFFF 0%, #FEFBF2 100%);
+          border: 1px solid rgba(212, 175, 55, 0.25);
+        }
+
+        .land-timeline {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-top: 0.5rem;
+          padding: 0.5rem 0 0.25rem;
+        }
+        .land-step {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 0.4rem;
+          color: #687085;
+          font-size: 0.75rem;
+          font-weight: 500;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          flex-shrink: 0;
+        }
+        .step-dot {
+          width: 14px;
+          height: 14px;
+          border-radius: 50%;
+          background: #FFFFFF;
+          border: 2px solid #D1D5DB;
+          transition: all 0.2s;
+        }
+        .land-step.step-done .step-dot {
+          background: #D4AF37;
+          border-color: #D4AF37;
+        }
+        .land-step.step-done {
+          color: #9a7f2a;
+        }
+        .land-step.step-current .step-dot {
+          background: #FFFFFF;
+          border-color: #D4AF37;
+          box-shadow: 0 0 0 4px rgba(212, 175, 55, 0.2);
+          animation: pulse 2s infinite;
+        }
+        .land-step.step-current {
+          color: #9a7f2a;
+          font-weight: 600;
+        }
+        @keyframes pulse {
+          0%, 100% { box-shadow: 0 0 0 4px rgba(212, 175, 55, 0.2); }
+          50% { box-shadow: 0 0 0 8px rgba(212, 175, 55, 0.1); }
+        }
+        .land-line {
+          flex: 1;
+          height: 2px;
+          background: #E5E7EB;
+          margin: 0 0.25rem;
+          margin-bottom: 1rem;
+          transition: background 0.3s;
+        }
+        .land-line.line-done {
+          background: #D4AF37;
+        }
+
+        .land-notes {
+          margin-top: 1rem;
+          padding-top: 1rem;
+          border-top: 1px solid rgba(212, 175, 55, 0.15);
+        }
+        .land-notes-label {
+          color: #687085;
+          font-size: 0.8rem;
+          font-weight: 500;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }
+        .land-notes p {
+          color: #0B1320;
+          font-size: 0.9rem;
+          margin-top: 0.35rem;
+          line-height: 1.5;
+          white-space: pre-wrap;
         }
 
         .page-head {
