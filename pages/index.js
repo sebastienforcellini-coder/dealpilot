@@ -13,14 +13,58 @@ export default function Home() {
     country: "",
     city: "",
     budget: "",
-    currency: "EUR",
+    currency: "MAD",
     propertyType: "",
     description: "",
   });
 
+  // Taux de change vers EUR (stocké au chargement)
+  const [rates, setRates] = useState({ MAD: 0.093, USD: 0.92, GBP: 1.17, EUR: 1 });
+
   useEffect(() => {
     fetchProjects();
+    fetchRates();
   }, []);
+
+  const fetchRates = async () => {
+    try {
+      // API gratuite sans clé — taux de change par rapport à EUR
+      const res = await fetch("https://open.er-api.com/v6/latest/EUR");
+      const data = await res.json();
+      if (data && data.rates) {
+        // On inverse pour avoir taux → EUR
+        setRates({
+          EUR: 1,
+          MAD: 1 / data.rates.MAD,
+          USD: 1 / data.rates.USD,
+          GBP: 1 / data.rates.GBP,
+        });
+      }
+    } catch (err) {
+      console.error("Erreur taux de change, utilisation de valeurs par défaut", err);
+    }
+  };
+
+  const toEUR = (amount, currency) => {
+    if (!amount) return 0;
+    const rate = rates[currency] || 1;
+    return Math.round(Number(amount) * rate);
+  };
+
+  const currencySymbol = (c) => {
+    if (c === "EUR") return "€";
+    if (c === "USD") return "$";
+    if (c === "GBP") return "£";
+    return c;
+  };
+
+  const formatAmount = (amount, currency) => {
+    const n = Number(amount || 0).toLocaleString("fr-FR");
+    if (currency === "EUR") return `${n} €`;
+    if (currency === "USD") return `$${n}`;
+    if (currency === "GBP") return `£${n}`;
+    return `${n} ${currency}`;
+  };
 
   const fetchProjects = async () => {
     try {
@@ -50,7 +94,7 @@ export default function Home() {
           country: "",
           city: "",
           budget: "",
-          currency: "EUR",
+          currency: "MAD",
           propertyType: "",
           description: "",
         });
@@ -190,11 +234,16 @@ export default function Home() {
                           {p.city}{p.city && p.country && ", "}{p.country}
                         </p>
                         <div className="project-budget">
-                          <span className="label">Budget</span>
-                          <span className="amount">
-                            {p.currency === "EUR" ? "€" : p.currency === "USD" ? "$" : p.currency + " "}
-                            {Number(p.budget || 0).toLocaleString("fr-FR")}
-                          </span>
+                          <div className="budget-row">
+                            <span className="label">Budget</span>
+                            <span className="amount">{formatAmount(p.budget, p.currency)}</span>
+                          </div>
+                          {p.currency !== "EUR" && p.budget && (
+                            <div className="budget-row budget-eur">
+                              <span className="label-eur">≈</span>
+                              <span className="amount-eur">{Number(toEUR(p.budget, p.currency)).toLocaleString("fr-FR")} €</span>
+                            </div>
+                          )}
                         </div>
                         {p.description && <p className="project-desc">{p.description}</p>}
                       </div>
@@ -212,48 +261,6 @@ export default function Home() {
             )}
           </section>
 
-          {/* Pillars */}
-          <section className="pillars">
-            <div className="pillar">
-              <div className="pillar-icon">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                  <circle cx="12" cy="12" r="10" />
-                  <polyline points="12 6 12 12 16 14" />
-                </svg>
-              </div>
-              <h4>Tout-en-un</h4>
-              <p>Tout au même endroit</p>
-            </div>
-            <div className="pillar">
-              <div className="pillar-icon">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                  <circle cx="12" cy="12" r="10" />
-                  <path d="M12 2 L12 12 L22 12" />
-                </svg>
-              </div>
-              <h4>Transparence</h4>
-              <p>Des détails clairs, sans surprise</p>
-            </div>
-            <div className="pillar">
-              <div className="pillar-icon">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                  <circle cx="12" cy="12" r="9" />
-                  <polyline points="12 7 12 12 15.5 14" />
-                </svg>
-              </div>
-              <h4>Gain de temps</h4>
-              <p>Suivi automatisé et rappels</p>
-            </div>
-            <div className="pillar">
-              <div className="pillar-icon">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                </svg>
-              </div>
-              <h4>Sérénité</h4>
-              <p>Sécurisé, fiable et confidentiel</p>
-            </div>
-          </section>
         </main>
 
         {/* MODAL NEW PROJECT */}
@@ -272,7 +279,7 @@ export default function Home() {
                     required
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    placeholder="ex. Villa Marrakech"
+                    placeholder="ex. Riad Marrakech"
                   />
                 </label>
                 <div className="row">
@@ -302,22 +309,27 @@ export default function Home() {
                       type="number"
                       value={formData.budget}
                       onChange={(e) => setFormData({ ...formData, budget: e.target.value })}
-                      placeholder="425000"
+                      placeholder="4250000"
                     />
                   </label>
                   <label>
-                    <span>Devise</span>
+                    <span>Devise locale</span>
                     <select
                       value={formData.currency}
                       onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
                     >
-                      <option value="EUR">EUR</option>
-                      <option value="USD">USD</option>
-                      <option value="GBP">GBP</option>
-                      <option value="MAD">MAD</option>
+                      <option value="MAD">MAD — Dirham marocain</option>
+                      <option value="EUR">EUR — Euro</option>
+                      <option value="USD">USD — Dollar US</option>
+                      <option value="GBP">GBP — Livre sterling</option>
                     </select>
                   </label>
                 </div>
+                {formData.budget && formData.currency !== "EUR" && (
+                  <div className="conversion-hint">
+                    ≈ {Number(toEUR(formData.budget, formData.currency)).toLocaleString("fr-FR")} €
+                  </div>
+                )}
                 <label>
                   <span>Type de bien</span>
                   <input
@@ -751,11 +763,17 @@ export default function Home() {
         }
 
         .project-budget {
+          padding-top: 1rem;
+          border-top: 1px solid #EEF0F4;
+          display: flex;
+          flex-direction: column;
+          gap: 0.3rem;
+        }
+
+        .budget-row {
           display: flex;
           justify-content: space-between;
           align-items: baseline;
-          padding-top: 1rem;
-          border-top: 1px solid #EEF0F4;
         }
 
         .project-budget .label {
@@ -772,45 +790,37 @@ export default function Home() {
           font-size: 1.15rem;
         }
 
+        .budget-eur {
+          opacity: 0.7;
+        }
+
+        .label-eur {
+          color: #687085;
+          font-size: 0.85rem;
+          font-weight: 500;
+        }
+
+        .amount-eur {
+          color: #687085;
+          font-size: 0.9rem;
+          font-weight: 500;
+        }
+
+        .conversion-hint {
+          background: rgba(212, 175, 55, 0.08);
+          border: 1px solid rgba(212, 175, 55, 0.25);
+          color: #9a7f2a;
+          padding: 0.65rem 0.9rem;
+          border-radius: 8px;
+          font-size: 0.9rem;
+          font-weight: 500;
+          text-align: center;
+        }
+
         .project-desc {
           color: #687085;
           font-size: 0.875rem;
           margin-top: 0.75rem;
-          line-height: 1.5;
-        }
-
-        /* PILLARS */
-        .pillars {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-          gap: 1.25rem;
-          padding: 2.5rem 0 1rem;
-          border-top: 1px solid #EEF0F4;
-        }
-
-        .pillar {
-          text-align: left;
-          padding: 0.25rem 0;
-        }
-
-        .pillar-icon {
-          color: #D4AF37;
-          margin-bottom: 0.75rem;
-          display: inline-flex;
-        }
-
-        .pillar h4 {
-          color: #0B1320;
-          font-size: 0.8rem;
-          font-weight: 700;
-          margin-bottom: 0.35rem;
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-        }
-
-        .pillar p {
-          color: #687085;
-          font-size: 0.875rem;
           line-height: 1.5;
         }
 
