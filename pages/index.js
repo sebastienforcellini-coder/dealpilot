@@ -1,7 +1,9 @@
 import { useState, useEffect } from "react";
 import Head from "next/head";
+import { useRouter } from "next/router";
 
 export default function Home() {
+  const router = useRouter();
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -84,7 +86,15 @@ export default function Home() {
       const res = await fetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          name: formData.name,
+          country: formData.country,
+          city: formData.city,
+          propertyType: formData.propertyType,
+          description: formData.description,
+          currency: formData.currency,
+          targetBudget: formData.budget ? Number(formData.budget) : null,
+        }),
       });
       const data = await res.json();
       if (data.success) {
@@ -225,7 +235,11 @@ export default function Home() {
                 ) : (
                   <div className="projects-grid">
                     {projects.map((p, i) => (
-                      <div key={i} className="project-card">
+                      <div
+                        key={i}
+                        className="project-card"
+                        onClick={() => router.push(`/projet/${p.id}`)}
+                      >
                         <div className="project-header">
                           <h3>{p.name}</h3>
                           <span className="tag">{p.property_type || "Bien"}</span>
@@ -236,12 +250,12 @@ export default function Home() {
                         <div className="project-budget">
                           <div className="budget-row">
                             <span className="label">Budget</span>
-                            <span className="amount">{formatAmount(p.budget, p.currency)}</span>
+                            <span className="amount">{formatAmount(p.target_budget || p.budget, p.currency)}</span>
                           </div>
-                          {p.currency !== "EUR" && p.budget && (
+                          {p.currency !== "EUR" && (p.target_budget || p.budget) && (
                             <div className="budget-row budget-eur">
                               <span className="label-eur">≈</span>
-                              <span className="amount-eur">{Number(toEUR(p.budget, p.currency)).toLocaleString("fr-FR")} €</span>
+                              <span className="amount-eur">{Number(toEUR(p.target_budget || p.budget, p.currency)).toLocaleString("fr-FR")} €</span>
                             </div>
                           )}
                         </div>
@@ -724,6 +738,7 @@ export default function Home() {
           padding: 1.5rem;
           transition: all 0.2s;
           box-shadow: 0 1px 3px rgba(11, 19, 32, 0.04);
+          cursor: pointer;
         }
 
         .project-card:hover {
