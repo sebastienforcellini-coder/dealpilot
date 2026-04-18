@@ -318,8 +318,7 @@ export default function Home() {
                 </div>
                 <div className="row">
                   <label>
-                    <span>Budget</span>
-                    <input
+<span>Budget total cible (tout compris)</span>                    <input
                       type="number"
                       value={formData.budget}
                       onChange={(e) => setFormData({ ...formData, budget: e.target.value })}
