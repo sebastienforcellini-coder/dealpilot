@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DealPilot - Gestion Immobilière</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary-color: #081320;
+            --accent-color: #D4AF37;
+            --text-primary: #FFFFFF;
+            --text-secondary: #B0B8C8;
+            --background-dark: #0A1526;
+            --surface-color: #1A2332;
+            --border-color: #2A3441;
+            --success-color: #10B981;
+            --warning-color: #F59E0B;
+            --error-color: #EF4444;
+            --gradient-primary: linear-gradient(135deg, #081320 0%, #1A2332 100%);
+        }
+
+        body {
+            font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--background-dark);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        .app-container {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .app-header {
+            background: var(--gradient-primary);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .brand-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--accent-color);
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .notifications {
+            position: relative;
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+        }
+
+        .notification-badge {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: var(--error-color);
+            color: white;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            font-size: 0.75rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+        }
+
+        .user-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: var(--accent-color);
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+
+        .user-avatar:hover {
+            transform: scale(1.1);
+        }
+
+        .main-content {
+            flex: 1;
+            padding: 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        .dashboard-header h2 {
+            font-size: 2rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .primary-button {
+            background: linear-gradient(135deg, var(--accent-color) 0%, #E6C659 100%);
+            color: var(--primary-color);
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.95rem;
+        }
+
+        .primary-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(212, 175, 55, 0.3);
+        }
+
+        .secondary-button {
+            background: transparent;
+            color: var(--text-secondary);
+            border: 1px solid var(--border-color);
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .secondary-button:hover {
+            border-color: var(--accent-color);
+            color: var(--accent-color);
+        }
+
+        .button-icon {
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+
+        .nav-tabs {
+            display: flex;
+            gap: 0;
+            margin-bottom: 2rem;
+            background: var(--surface-color);
+            border-radius: 12px;
+            padding: 0.25rem;
+            overflow: hidden;
+        }
+
+        .nav-tab {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+
+        .nav-tab.active {
+            background: var(--accent-color);
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+
+        .nav-tab:hover:not(.active) {
+            color: var(--text-primary);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .tab-content {
+            position: relative;
+        }
+
+        .tab-panel {
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .tab-panel.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .projects-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .project-card {
+            background: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .project-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+            border-color: var(--accent-color);
+        }
+
+        .project-card.empty-state {
+            text-align: center;
+            padding: 3rem 1.5rem;
+            cursor: default;
+        }
+
+        .empty-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            opacity: 0.7;
+        }
+
+        .project-card h3 {
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        .project-card p {
+            color: var(--text-secondary);
+            margin-bottom: 1.5rem;
+            line-height: 1.5;
+        }
+
+        .budget-overview {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .budget-card {
+            background: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+        }
+
+        .budget-card h3 {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .budget-amount {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--accent-color);
+            margin-bottom: 1rem;
+        }
+
+        .budget-progress {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .progress-bar {
+            height: 8px;
+            background: var(--border-color);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--accent-color);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        .progress-text {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .timeline {
+            max-width: 800px;
+        }
+
+        .timeline-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .timeline-dot {
+            width: 12px;
+            height: 12px;
+            background: var(--accent-color);
+            border-radius: 50%;
+            margin-top: 0.25rem;
+            flex-shrink: 0;
+        }
+
+        .timeline-content h4 {
+            color: var(--text-primary);
+            margin-bottom: 0.25rem;
+            font-weight: 600;
+        }
+
+        .timeline-content p {
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .timeline-date {
+            font-size: 0.8rem;
+            color: var(--accent-color);
+        }
+
+        .documents-section,
+        .more-section {
+            min-height: 300px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .empty-state {
+            text-align: center;
+            opacity: 0.7;
+        }
+
+        .feature-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .feature-card {
+            background: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+            border-color: var(--accent-color);
+        }
+
+        .feature-icon {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            display: block;
+        }
+
+        .feature-card h4 {
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        .feature-card p {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.show {
+            display: flex;
+            animation: modalAppear 0.3s ease;
+        }
+
+        @keyframes modalAppear {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+
+        .modal-content {
+            background: var(--surface-color);
+            border-radius: 16px;
+            width: 90%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            animation: modalSlideIn 0.3s ease;
+        }
+
+        @keyframes modalSlideIn {
+            from {
+                transform: scale(0.9) translateY(-20px);
+                opacity: 0;
+            }
+            to {
+                transform: scale(1) translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .modal-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h3 {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        .close-button {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0.25rem;
+            border-radius: 4px;
+            transition: color 0.2s ease;
+        }
+
+        .close-button:hover {
+            color: var(--text-primary);
+        }
+
+        .modal-body {
+            padding: 1.5rem;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--background-dark);
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 0.9rem;
+            transition: border-color 0.3s ease;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: var(--accent-color);
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: flex-end;
+            margin-top: 2rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid var(--border-color);
+        }
+
+        @media (max-width: 768px) {
+            .app-header {
+                padding: 1rem;
+            }
+            
+            .main-content {
+                padding: 1rem;
+            }
+            
+            .dashboard-header {
+                flex-direction: column;
+                gap: 1rem;
+                align-items: stretch;
+            }
+            
+            .nav-tabs {
+                flex-direction: column;
+                padding: 0.5rem;
+            }
+            
+            .nav-tab {
+                text-align: center;
+            }
+            
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+            
+            .projects-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .feature-cards {
+                grid-template-columns: 1fr;
+            }
+            
+            .modal-actions {
+                flex-direction: column-reverse;
+            }
+            
+            .budget-amount {
+                font-size: 2rem;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .dashboard-header h2 {
+                font-size: 1.5rem;
+            }
+            
+            .brand-title {
+                font-size: 1.5rem;
+            }
+            
+            .modal-content {
+                margin: 1rem;
+                width: calc(100% - 2rem);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <div class="logo-section">
+                <h1 class="brand-title">DealPilot</h1>
+            </div>
+            <div class="header-right">
+                <div class="notifications">
+                    <span class="notification-badge">3</span>
+                </div>
+                <div class="user-avatar"></div>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <div class="dashboard-header">
+                <h2>Tableau de bord</h2>
+                <button id="nouveau-projet-btn" class="primary-button">
+                    <span class="button-icon">+</span>
+                    Nouveau Projet
+                </button>
+            </div>
+
+            <div class="nav-tabs">
+                <button class="nav-tab active" data-tab="apercu">Aperçu</button>
+                <button class="nav-tab" data-tab="budget">Budget & Coûts</button>
+                <button class="nav-tab" data-tab="chronologie">Chronologie</button>
+                <button class="nav-tab" data-tab="documents">Documents</button>
+                <button class="nav-tab" data-tab="plus">Plus</button>
+            </div>
+
+            <div class="tab-content">
+                <div class="tab-panel active" id="apercu">
+                    <div class="projects-grid">
+                        <div class="project-card empty-state">
+                            <div class="empty-icon">🏠</div>
+                            <h3>Commencez votre premier projet</h3>
+                            <p>Créez un nouveau projet immobilier pour commencer à suivre vos investissements.</p>
+                            <button class="secondary-button" onclick="openProjectModal()">Créer un projet</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-panel" id="budget">
+                    <div class="budget-overview">
+                        <div class="budget-card">
+                            <h3>Budget Total</h3>
+                            <div class="budget-amount">0 €</div>
+                            <div class="budget-progress">
+                                <div class="progress-bar">
+                                    <div class="progress-fill" style="width: 0%"></div>
+                                </div>
+                                <span class="progress-text">0% utilisé</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-panel" id="chronologie">
+                    <div class="timeline">
+                        <div class="timeline-item">
+                            <div class="timeline-dot"></div>
+                            <div class="timeline-content">
+                                <h4>Bienvenue sur DealPilot</h4>
+                                <p>Votre plateforme de gestion immobilière est prête</p>
+                                <span class="timeline-date">Aujourd'hui</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-panel" id="documents">
+                    <div class="documents-section">
+                        <div class="empty-state">
+                            <div class="empty-icon">📄</div>
+                            <h3>Aucun document</h3>
+                            <p>Vos documents de projets apparaîtront ici.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-panel" id="plus">
+                    <div class="more-section">
+                        <div class="feature-cards">
+                            <div class="feature-card">
+                                <div class="feature-icon">📊</div>
+                                <h4>Rapports avancés</h4>
+                                <p>Analyses détaillées de vos investissements</p>
+                            </div>
+                            <div class="feature-card">
+                                <div class="feature-icon">🔔</div>
+                                <h4>Alertes personnalisées</h4>
+                                <p>Notifications pour vos échéances importantes</p>
+                            </div>
+                            <div class="feature-card">
+                                <div class="feature-icon">🎯</div>
+                                <h4>Objectifs financiers</h4>
+                                <p>Définissez et suivez vos objectifs d'investissement</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal Nouveau Projet -->
+    <div id="project-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Créer un nouveau projet</h3>
+                <button class="close-button" onclick="closeProjectModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="project-form">
+                    <div class="form-group">
+                        <label for="project-name">Nom du projet *</label>
+                        <input type="text" id="project-name" required placeholder="Ex: Appartement Marrakech Centre">
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="project-country">Pays *</label>
+                            <select id="project-country" required onchange="updateCities()">
+                                <option value="">Sélectionner un pays</option>
+                                <option value="maroc">Maroc</option>
+                                <option value="france">France</option>
+                                <option value="usa">États-Unis</option>
+                                <option value="espagne">Espagne</option>
+                                <option value="portugal">Portugal</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="project-city">Ville *</label>
+                            <select id="project-city" required>
+                                <option value="">Choisir d'abord un pays</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="project-budget">Budget total *</label>
+                            <input type="number" id="project-budget" required placeholder="250000" min="0">
+                        </div>
+                        <div class="form-group">
+                            <label for="project-currency">Devise</label>
+                            <select id="project-currency">
+                                <option value="EUR">EUR (€)</option>
+                                <option value="MAD">MAD (د.م.)</option>
+                                <option value="USD">USD ($)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="project-type">Type de bien</label>
+                        <select id="project-type">
+                            <option value="appartement">Appartement</option>
+                            <option value="maison">Maison</option>
+                            <option value="villa">Villa</option>
+                            <option value="terrain">Terrain</option>
+                            <option value="commercial">Commercial</option>
+                            <option value="riad">Riad</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="project-notes">Description (optionnel)</label>
+                        <textarea id="project-notes" rows="3" placeholder="Notes sur le projet..."></textarea>
+                    </div>
+
+                    <div class="modal-actions">
+                        <button type="button" class="secondary-button" onclick="closeProjectModal()">Annuler</button>
+                        <button type="submit" class="primary-button">Créer le projet</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration des villes par pays
+        const citiesByCountry = {
+            maroc: ["Marrakech", "Casablanca", "Rabat", "Fès", "Tanger", "Agadir"],
+            france: ["Paris", "Lyon", "Marseille", "Toulouse", "Nice", "Bordeaux"],
+            usa: ["New York", "Los Angeles", "Chicago", "Miami", "San Francisco", "Las Vegas"],
+            espagne: ["Madrid", "Barcelone", "Séville", "Valence", "Bilbao", "Malaga"],
+            portugal: ["Lisbonne", "Porto", "Faro", "Coimbra", "Braga", "Aveiro"]
+        };
+
+        // Stockage local pour les projets
+        let projects = JSON.parse(localStorage.getItem('dealpilot_projects')) || [];
+        let currentProjectId = localStorage.getItem('dealpilot_current_project') || null;
+
+        // Initialisation de l'application
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeApp();
+            setupEventListeners();
+            loadProjects();
+        });
+
+        function initializeApp() {
+            console.log('DealPilot initialized');
+        }
+
+        function setupEventListeners() {
+            // Gestion des onglets de navigation
+            const navTabs = document.querySelectorAll('.nav-tab');
+            navTabs.forEach(tab => {
+                tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+            });
+
+            // Bouton Nouveau Projet
+            const nouveauProjetBtn = document.getElementById('nouveau-projet-btn');
+            if (nouveauProjetBtn) {
+                nouveauProjetBtn.addEventListener('click', openProjectModal);
+            }
+
+            // Gestionnaire du formulaire de projet
+            const projectForm = document.getElementById('project-form');
+            if (projectForm) {
+                projectForm.addEventListener('submit', handleProjectSubmit);
+            }
+
+            // Fermer modal en cliquant à l'extérieur
+            const modal = document.getElementById('project-modal');
+            if (modal) {
+                modal.addEventListener('click', (e) => {
+                    if (e.target === modal) {
+                        closeProjectModal();
+                    }
+                });
+            }
+
+            // Échapper pour fermer la modal
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    closeProjectModal();
+                }
+            });
+        }
+
+        function switchTab(tabName) {
+            // Désactiver tous les onglets
+            const tabs = document.querySelectorAll('.nav-tab');
+            const panels = document.querySelectorAll('.tab-panel');
+
+            tabs.forEach(tab => tab.classList.remove('active'));
+            panels.forEach(panel => panel.classList.remove('active'));
+
+            // Activer l'onglet sélectionné
+            const selectedTab = document.querySelector(`[data-tab="${tabName}"]`);
+            const selectedPanel = document.getElementById(tabName);
+
+            if (selectedTab && selectedPanel) {
+                selectedTab.classList.add('active');
+                selectedPanel.classList.add('active');
+            }
+        }
+
+        function openProjectModal() {
+            const modal = document.getElementById('project-modal');
+            if (modal) {
+                modal.classList.add('show');
+                const firstInput = modal.querySelector('input[type="text"]');
+                if (firstInput) {
+                    setTimeout(() => firstInput.focus(), 300);
+                }
+            }
+        }
+
+        function closeProjectModal() {
+            const modal = document.getElementById('project-modal');
+            if (modal) {
+                modal.classList.remove('show');
+                const form = document.getElementById('project-form');
+                if (form) {
+                    form.reset();
+                    updateCities();
+                }
+            }
+        }
+
+        function updateCities() {
+            const countrySelect = document.getElementById('project-country');
+            const citySelect = document.getElementById('project-city');
+            
+            if (!countrySelect || !citySelect) return;
+            
+            const selectedCountry = countrySelect.value;
+            
+            citySelect.innerHTML = '<option value="">Sélectionner une ville</option>';
+            
+            if (selectedCountry && citiesByCountry[selectedCountry]) {
+                const cities = citiesByCountry[selectedCountry];
+                cities.forEach(city => {
+                    const option = document.createElement('option');
+                    option.value = city.toLowerCase();
+                    option.textContent = city;
+                    citySelect.appendChild(option);
+                });
+            }
+        }
+
+        function handleProjectSubmit(e) {
+            e.preventDefault();
+            
+            const projectData = {
+                id: Date.now().toString(),
+                name: document.getElementById('project-name').value,
+                country: document.getElementById('project-country').value,
+                city: document.getElementById('project-city').value,
+                budget: parseFloat(document.getElementById('project-budget').value),
+                currency: document.getElementById('project-currency').value,
+                type: document.getElementById('project-type').value,
+                notes: document.getElementById('project-notes').value,
+                createdAt: new Date().toISOString(),
+                expenses: [],
+                documents: []
+            };
+
+            if (!projectData.name || !projectData.country || !projectData.city || !projectData.budget) {
+                alert('Veuillez remplir tous les champs obligatoires.');
+                return;
+            }
+
+            projects.push(projectData);
+            localStorage.setItem('dealpilot_projects', JSON.stringify(projects));
+            
+            currentProjectId = projectData.id;
+            localStorage.setItem('dealpilot_current_project', currentProjectId);
+            
+            loadProjects();
+            closeProjectModal();
+            
+            // Notification simple
+            alert('Projet créé avec succès !');
+        }
+
+        function loadProjects() {
+            const projectsGrid = document.querySelector('.projects-grid');
+            if (!projectsGrid) return;
+
+            if (projects.length === 0) {
+                projectsGrid.innerHTML = `
+                    <div class="project-card empty-state">
+                        <div class="empty-icon">🏠</div>
+                        <h3>Commencez votre premier projet</h3>
+                        <p>Créez un nouveau projet immobilier pour commencer à suivre vos investissements.</p>
+                        <button class="secondary-button" onclick="openProjectModal()">Créer un projet</button>
+                    </div>
+                `;
+            } else {
+                projectsGrid.innerHTML = projects.map(project => createProjectCard(project)).join('');
+            }
+        }
+
+        function createProjectCard(project) {
+            const symbols = { EUR: '€', MAD: 'د.م.', USD: '$' };
+            return `
+                <div class="project-card">
+                    <h3>${project.name}</h3>
+                    <p>${project.city}, ${project.country}</p>
+                    <div class="budget-amount">${project.budget.toLocaleString()} ${symbols[project.currency]}</div>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>
