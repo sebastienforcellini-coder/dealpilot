@@ -9,6 +9,9 @@ export default function Home() {
   const [showForm, setShowForm] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
   const [showNotifs, setShowNotifs] = useState(false);
+  const [editingId, setEditingId] = useState(null); // null = création, sinon = id du projet édité
+  const [menuOpenId, setMenuOpenId] = useState(null); // id du projet dont le menu ⋯ est ouvert
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null); // id du projet à confirmer
 
   const [formData, setFormData] = useState({
     name: "",
@@ -80,34 +83,85 @@ export default function Home() {
     }
   };
 
+  const resetForm = () => {
+    setFormData({
+      name: "",
+      country: "",
+      city: "",
+      budget: "",
+      currency: "MAD",
+      propertyType: "",
+      description: "",
+    });
+    setEditingId(null);
+    setShowForm(false);
+  };
+
+  const openEditForm = (project) => {
+    setFormData({
+      name: project.name || "",
+      country: project.country || "",
+      city: project.city || "",
+      budget: project.target_budget || project.budget || "",
+      currency: project.currency || "MAD",
+      propertyType: project.property_type || "",
+      description: project.description || "",
+    });
+    setEditingId(project.id);
+    setShowForm(true);
+    setMenuOpenId(null);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch("/api/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: formData.name,
-          country: formData.country,
-          city: formData.city,
-          propertyType: formData.propertyType,
-          description: formData.description,
-          currency: formData.currency,
-          targetBudget: formData.budget ? Number(formData.budget) : null,
-        }),
-      });
+      const body = {
+        name: formData.name,
+        country: formData.country,
+        city: formData.city,
+        property_type: formData.propertyType,
+        description: formData.description,
+        currency: formData.currency,
+        target_budget: formData.budget ? Number(formData.budget) : null,
+      };
+
+      const res = await fetch(
+        editingId ? `/api/projects/${editingId}` : "/api/projects",
+        {
+          method: editingId ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            editingId
+              ? body
+              : {
+                  name: formData.name,
+                  country: formData.country,
+                  city: formData.city,
+                  propertyType: formData.propertyType,
+                  description: formData.description,
+                  currency: formData.currency,
+                  targetBudget: formData.budget ? Number(formData.budget) : null,
+                }
+          ),
+        }
+      );
       const data = await res.json();
       if (data.success) {
-        setShowForm(false);
-        setFormData({
-          name: "",
-          country: "",
-          city: "",
-          budget: "",
-          currency: "MAD",
-          propertyType: "",
-          description: "",
-        });
+        resetForm();
+        fetchProjects();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const deleteProject = async (id) => {
+    try {
+      const res = await fetch(`/api/projects/${id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (data.success) {
+        setConfirmDeleteId(null);
+        setMenuOpenId(null);
         fetchProjects();
       }
     } catch (err) {
@@ -238,8 +292,56 @@ export default function Home() {
                       <div
                         key={i}
                         className="project-card"
-                        onClick={() => router.push(`/projet/${p.id}`)}
+                        onClick={(e) => {
+                          // Ne pas naviguer si on clique sur le menu ou ses enfants
+                          if (e.target.closest(".card-menu")) return;
+                          router.push(`/projet/${p.id}`);
+                        }}
                       >
+                        <div className="card-menu">
+                          <button
+                            className="menu-trigger"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setMenuOpenId(menuOpenId === p.id ? null : p.id);
+                            }}
+                            aria-label="Options"
+                          >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                              <circle cx="12" cy="5" r="2" />
+                              <circle cx="12" cy="12" r="2" />
+                              <circle cx="12" cy="19" r="2" />
+                            </svg>
+                          </button>
+                          {menuOpenId === p.id && (
+                            <>
+                              <div
+                                className="menu-backdrop"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setMenuOpenId(null);
+                                }}
+                              />
+                              <div className="menu-dropdown" onClick={(e) => e.stopPropagation()}>
+                                <button
+                                  className="menu-item"
+                                  onClick={() => openEditForm(p)}
+                                >
+                                  ✏️ Modifier
+                                </button>
+                                <button
+                                  className="menu-item menu-item-danger"
+                                  onClick={() => {
+                                    setConfirmDeleteId(p.id);
+                                    setMenuOpenId(null);
+                                  }}
+                                >
+                                  🗑️ Supprimer
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
                         <div className="project-header">
                           <h3>{p.name}</h3>
                           <span className="tag">{p.property_type || "Bien"}</span>
@@ -277,13 +379,13 @@ export default function Home() {
 
         </main>
 
-        {/* MODAL NEW PROJECT */}
+        {/* MODAL NEW/EDIT PROJECT */}
         {showForm && (
-          <div className="modal-overlay" onClick={() => setShowForm(false)}>
+          <div className="modal-overlay" onClick={resetForm}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
-                <h2>Nouveau projet</h2>
-                <button className="close-btn" onClick={() => setShowForm(false)}>×</button>
+                <h2>{editingId ? "Modifier le projet" : "Nouveau projet"}</h2>
+                <button className="close-btn" onClick={resetForm}>×</button>
               </div>
               <form onSubmit={handleSubmit} className="modal-form">
                 <label>
@@ -318,7 +420,8 @@ export default function Home() {
                 </div>
                 <div className="row">
                   <label>
-<span>Budget total cible (tout compris)</span>                    <input
+                    <span>Budget</span>
+                    <input
                       type="number"
                       value={formData.budget}
                       onChange={(e) => setFormData({ ...formData, budget: e.target.value })}
@@ -362,14 +465,42 @@ export default function Home() {
                   />
                 </label>
                 <div className="modal-actions">
-                  <button type="button" className="btn-ghost" onClick={() => setShowForm(false)}>
+                  <button type="button" className="btn-ghost" onClick={resetForm}>
                     Annuler
                   </button>
                   <button type="submit" className="btn-primary">
-                    Créer le projet
+                    {editingId ? "Enregistrer" : "Créer le projet"}
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL CONFIRMATION SUPPRESSION */}
+        {confirmDeleteId && (
+          <div className="modal-overlay" onClick={() => setConfirmDeleteId(null)}>
+            <div className="modal modal-small" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h2>Supprimer le projet ?</h2>
+                <button className="close-btn" onClick={() => setConfirmDeleteId(null)}>×</button>
+              </div>
+              <div className="modal-body-text">
+                <p>Cette action est <strong>irréversible</strong>.</p>
+                <p>Tous les contacts, coûts, postes travaux, documents et étapes de chronologie liés à ce projet seront également supprimés définitivement.</p>
+              </div>
+              <div className="modal-actions" style={{ padding: "1rem 1.75rem 1.75rem" }}>
+                <button type="button" className="btn-ghost" onClick={() => setConfirmDeleteId(null)}>
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  className="btn-danger"
+                  onClick={() => deleteProject(confirmDeleteId)}
+                >
+                  Supprimer définitivement
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -639,6 +770,40 @@ export default function Home() {
           color: #0B1320;
         }
 
+        .btn-danger {
+          background: #DC2626;
+          color: #FFFFFF;
+          border: none;
+          padding: 0.75rem 1.5rem;
+          border-radius: 10px;
+          font-weight: 600;
+          font-size: 0.95rem;
+          transition: all 0.2s;
+        }
+
+        .btn-danger:hover {
+          background: #B91C1C;
+        }
+
+        .modal-small {
+          max-width: 440px;
+        }
+
+        .modal-body-text {
+          padding: 1.25rem 1.75rem;
+          color: #687085;
+          font-size: 0.95rem;
+          line-height: 1.55;
+        }
+
+        .modal-body-text p {
+          margin-bottom: 0.5rem;
+        }
+
+        .modal-body-text strong {
+          color: #DC2626;
+        }
+
         /* TABS */
         .tabs {
           display: flex;
@@ -738,6 +903,78 @@ export default function Home() {
           transition: all 0.2s;
           box-shadow: 0 1px 3px rgba(11, 19, 32, 0.04);
           cursor: pointer;
+          position: relative;
+        }
+
+        /* MENU CARD */
+        .card-menu {
+          position: absolute;
+          top: 0.75rem;
+          right: 0.75rem;
+          z-index: 2;
+        }
+
+        .menu-trigger {
+          background: transparent;
+          border: none;
+          color: #687085;
+          width: 32px;
+          height: 32px;
+          border-radius: 8px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.15s;
+          cursor: pointer;
+        }
+
+        .menu-trigger:hover {
+          background: #F0F2F5;
+          color: #0B1320;
+        }
+
+        .menu-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 40;
+        }
+
+        .menu-dropdown {
+          position: absolute;
+          top: calc(100% + 4px);
+          right: 0;
+          background: #FFFFFF;
+          border: 1px solid #EEF0F4;
+          border-radius: 10px;
+          box-shadow: 0 8px 24px rgba(11, 19, 32, 0.12);
+          z-index: 50;
+          min-width: 160px;
+          overflow: hidden;
+        }
+
+        .menu-item {
+          display: block;
+          width: 100%;
+          background: transparent;
+          border: none;
+          padding: 0.7rem 1rem;
+          font-size: 0.9rem;
+          color: #0B1320;
+          text-align: left;
+          cursor: pointer;
+          transition: background 0.15s;
+        }
+
+        .menu-item:hover {
+          background: #F7F8FA;
+        }
+
+        .menu-item-danger {
+          color: #DC2626;
+        }
+
+        .menu-item-danger:hover {
+          background: #FEF2F2;
         }
 
         .project-card:hover {
@@ -768,6 +1005,7 @@ export default function Home() {
           font-size: 0.75rem;
           font-weight: 500;
           white-space: nowrap;
+          margin-right: 2.2rem;
         }
 
         .project-location {

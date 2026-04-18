@@ -47,8 +47,6 @@ export default async function handler(req, res) {
 
     if (req.method === "PATCH" || req.method === "PUT") {
       const fields = req.body;
-      const updates = [];
-      const values = [];
 
       // Whitelist des champs modifiables
       const allowed = ["name", "country", "city", "address", "property_type", "description", "status", "currency", "target_budget"];
@@ -61,11 +59,17 @@ export default async function handler(req, res) {
         return res.status(400).json({ success: false, error: "Aucun champ à mettre à jour" });
       }
 
-      // Construction dynamique simple (Neon tagged template)
-      // On fait plusieurs UPDATE individuels pour rester simple
-      for (const [key, val] of Object.entries(payload)) {
-        await sql.unsafe(`UPDATE projects SET ${key} = $1, updated_at = NOW() WHERE id = $2`, [val, projectId]);
-      }
+      // Mise à jour avec des requêtes dédiées par champ (approche simple, compatible Neon serverless)
+      const p = payload;
+      if ("name" in p) await sql`UPDATE projects SET name = ${p.name}, updated_at = NOW() WHERE id = ${projectId}`;
+      if ("country" in p) await sql`UPDATE projects SET country = ${p.country}, updated_at = NOW() WHERE id = ${projectId}`;
+      if ("city" in p) await sql`UPDATE projects SET city = ${p.city}, updated_at = NOW() WHERE id = ${projectId}`;
+      if ("address" in p) await sql`UPDATE projects SET address = ${p.address}, updated_at = NOW() WHERE id = ${projectId}`;
+      if ("property_type" in p) await sql`UPDATE projects SET property_type = ${p.property_type}, updated_at = NOW() WHERE id = ${projectId}`;
+      if ("description" in p) await sql`UPDATE projects SET description = ${p.description}, updated_at = NOW() WHERE id = ${projectId}`;
+      if ("status" in p) await sql`UPDATE projects SET status = ${p.status}, updated_at = NOW() WHERE id = ${projectId}`;
+      if ("currency" in p) await sql`UPDATE projects SET currency = ${p.currency}, updated_at = NOW() WHERE id = ${projectId}`;
+      if ("target_budget" in p) await sql`UPDATE projects SET target_budget = ${p.target_budget}, updated_at = NOW() WHERE id = ${projectId}`;
 
       const [project] = await sql`SELECT * FROM projects WHERE id = ${projectId}`;
       return res.json({ success: true, project });

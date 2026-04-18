@@ -12,6 +12,19 @@ export default function ProjectDetail() {
   const [activeTab, setActiveTab] = useState("apercu");
   const [showNotifs, setShowNotifs] = useState(false);
   const [rates, setRates] = useState({ MAD: 0.093, USD: 0.92, GBP: 1.17, EUR: 1 });
+  const [showEdit, setShowEdit] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [editData, setEditData] = useState({
+    name: "",
+    country: "",
+    city: "",
+    address: "",
+    property_type: "",
+    description: "",
+    status: "prospection",
+    currency: "MAD",
+    target_budget: "",
+  });
 
   useEffect(() => {
     if (!id) return;
@@ -69,6 +82,63 @@ export default function ProjectDetail() {
     acte: "Acte authentique",
     travaux: "Travaux en cours",
     livre: "Livré",
+  };
+
+  const openEdit = () => {
+    if (!data || !data.project) return;
+    const p = data.project;
+    setEditData({
+      name: p.name || "",
+      country: p.country || "",
+      city: p.city || "",
+      address: p.address || "",
+      property_type: p.property_type || "",
+      description: p.description || "",
+      status: p.status || "prospection",
+      currency: p.currency || "MAD",
+      target_budget: p.target_budget || "",
+    });
+    setShowEdit(true);
+  };
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`/api/projects/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editData.name,
+          country: editData.country,
+          city: editData.city,
+          address: editData.address,
+          property_type: editData.property_type,
+          description: editData.description,
+          status: editData.status,
+          currency: editData.currency,
+          target_budget: editData.target_budget ? Number(editData.target_budget) : null,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setShowEdit(false);
+        fetchProject();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDelete = async () => {
+    try {
+      const res = await fetch(`/api/projects/${id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (json.success) {
+        router.push("/");
+      }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const tabs = [
@@ -157,10 +227,20 @@ export default function ProjectDetail() {
         {/* MAIN */}
         <main className="main">
           {/* Breadcrumb */}
-          <div className="breadcrumb">
-            <Link href="/">Tableau de bord</Link>
-            <span>/</span>
-            <span>{project.name}</span>
+          <div className="breadcrumb-row">
+            <div className="breadcrumb">
+              <Link href="/">Tableau de bord</Link>
+              <span>/</span>
+              <span>{project.name}</span>
+            </div>
+            <div className="project-actions">
+              <button className="btn-action" onClick={openEdit}>
+                ✏️ Modifier
+              </button>
+              <button className="btn-action btn-action-danger" onClick={() => setShowDeleteConfirm(true)}>
+                🗑️ Supprimer
+              </button>
+            </div>
           </div>
 
           {/* Page head */}
@@ -322,6 +402,140 @@ export default function ProjectDetail() {
             )}
           </section>
         </main>
+
+        {/* MODAL ÉDITION */}
+        {showEdit && (
+          <div className="modal-overlay" onClick={() => setShowEdit(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h2>Modifier le projet</h2>
+                <button className="close-btn" onClick={() => setShowEdit(false)}>×</button>
+              </div>
+              <form onSubmit={handleEditSubmit} className="modal-form">
+                <label>
+                  <span>Nom du projet *</span>
+                  <input
+                    type="text"
+                    required
+                    value={editData.name}
+                    onChange={(e) => setEditData({ ...editData, name: e.target.value })}
+                  />
+                </label>
+                <label>
+                  <span>Statut</span>
+                  <select
+                    value={editData.status}
+                    onChange={(e) => setEditData({ ...editData, status: e.target.value })}
+                  >
+                    <option value="prospection">Prospection</option>
+                    <option value="negociation">Négociation</option>
+                    <option value="compromis">Compromis signé</option>
+                    <option value="acte">Acte authentique</option>
+                    <option value="travaux">Travaux en cours</option>
+                    <option value="livre">Livré</option>
+                  </select>
+                </label>
+                <div className="row">
+                  <label>
+                    <span>Pays</span>
+                    <input
+                      type="text"
+                      value={editData.country}
+                      onChange={(e) => setEditData({ ...editData, country: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    <span>Ville</span>
+                    <input
+                      type="text"
+                      value={editData.city}
+                      onChange={(e) => setEditData({ ...editData, city: e.target.value })}
+                    />
+                  </label>
+                </div>
+                <label>
+                  <span>Adresse précise</span>
+                  <input
+                    type="text"
+                    value={editData.address}
+                    onChange={(e) => setEditData({ ...editData, address: e.target.value })}
+                  />
+                </label>
+                <div className="row">
+                  <label>
+                    <span>Budget total cible</span>
+                    <input
+                      type="number"
+                      value={editData.target_budget}
+                      onChange={(e) => setEditData({ ...editData, target_budget: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    <span>Devise locale</span>
+                    <select
+                      value={editData.currency}
+                      onChange={(e) => setEditData({ ...editData, currency: e.target.value })}
+                    >
+                      <option value="MAD">MAD — Dirham marocain</option>
+                      <option value="EUR">EUR — Euro</option>
+                      <option value="USD">USD — Dollar US</option>
+                      <option value="GBP">GBP — Livre sterling</option>
+                    </select>
+                  </label>
+                </div>
+                <label>
+                  <span>Type de bien</span>
+                  <input
+                    type="text"
+                    value={editData.property_type}
+                    onChange={(e) => setEditData({ ...editData, property_type: e.target.value })}
+                  />
+                </label>
+                <label>
+                  <span>Description</span>
+                  <textarea
+                    rows="3"
+                    value={editData.description}
+                    onChange={(e) => setEditData({ ...editData, description: e.target.value })}
+                  />
+                </label>
+                <div className="modal-actions">
+                  <button type="button" className="btn-ghost" onClick={() => setShowEdit(false)}>
+                    Annuler
+                  </button>
+                  <button type="submit" className="btn-primary">
+                    Enregistrer
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL CONFIRMATION SUPPRESSION */}
+        {showDeleteConfirm && (
+          <div className="modal-overlay" onClick={() => setShowDeleteConfirm(false)}>
+            <div className="modal modal-small" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h2>Supprimer le projet ?</h2>
+                <button className="close-btn" onClick={() => setShowDeleteConfirm(false)}>×</button>
+              </div>
+              <div className="modal-body-text">
+                <p>Cette action est <strong>irréversible</strong>.</p>
+                <p>Tous les contacts, coûts, postes travaux, documents et étapes de chronologie liés à ce projet seront également supprimés définitivement.</p>
+              </div>
+              <div className="modal-actions" style={{ padding: "1rem 1.75rem 1.75rem" }}>
+                <button type="button" className="btn-ghost" onClick={() => setShowDeleteConfirm(false)}>
+                  Annuler
+                </button>
+                <button type="button" className="btn-danger" onClick={handleDelete}>
+                  Supprimer définitivement
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
 
       <style jsx global>{`
@@ -354,7 +568,9 @@ export default function ProjectDetail() {
           display: flex; justify-content: space-between; align-items: center;
         }
         .brand { display: block; text-decoration: none; }
-.logo { height: 36px !important; width: auto !important; max-width: 180px !important; display: block; object-fit: contain; }        .icon-btn {
+        .brand .logo { height: 42px; width: auto; display: block; }
+        .header-actions { display: flex; align-items: center; gap: 1rem; }
+        .icon-btn {
           background: transparent; border: 1px solid rgba(230, 233, 239, 0.15);
           color: #E6E9EF; width: 40px; height: 40px; border-radius: 10px;
           display: flex; align-items: center; justify-content: center;
@@ -385,10 +601,227 @@ export default function ProjectDetail() {
 
         .breadcrumb {
           display: flex; align-items: center; gap: 0.5rem;
-          color: #687085; font-size: 0.85rem; margin-bottom: 1.5rem;
+          color: #687085; font-size: 0.85rem;
         }
         .breadcrumb a { color: #687085; text-decoration: none; transition: color 0.2s; }
         .breadcrumb a:hover { color: #D4AF37; }
+
+        .breadcrumb-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 1.5rem;
+          gap: 1rem;
+          flex-wrap: wrap;
+        }
+
+        .project-actions {
+          display: flex;
+          gap: 0.5rem;
+        }
+
+        .btn-action {
+          background: #FFFFFF;
+          border: 1px solid #EEF0F4;
+          color: #0B1320;
+          padding: 0.5rem 0.9rem;
+          border-radius: 8px;
+          font-size: 0.85rem;
+          font-weight: 500;
+          transition: all 0.15s;
+          cursor: pointer;
+        }
+
+        .btn-action:hover {
+          border-color: #D4AF37;
+          background: #FEFBF2;
+        }
+
+        .btn-action-danger {
+          color: #DC2626;
+        }
+
+        .btn-action-danger:hover {
+          border-color: #DC2626;
+          background: #FEF2F2;
+        }
+
+        /* MODALS */
+        .modal-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(11, 19, 32, 0.55);
+          backdrop-filter: blur(4px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 100;
+          padding: 1rem;
+        }
+
+        .modal {
+          background: #FFFFFF;
+          border-radius: 16px;
+          max-width: 560px;
+          width: 100%;
+          max-height: 90vh;
+          overflow-y: auto;
+          box-shadow: 0 20px 60px rgba(11, 19, 32, 0.3);
+        }
+
+        .modal-small {
+          max-width: 440px;
+        }
+
+        .modal-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 1.5rem 1.75rem;
+          border-bottom: 1px solid #EEF0F4;
+        }
+
+        .modal-head h2 {
+          font-size: 1.35rem;
+          font-weight: 600;
+          color: #0B1320;
+        }
+
+        .close-btn {
+          background: transparent;
+          border: none;
+          color: #687085;
+          font-size: 1.75rem;
+          line-height: 1;
+          padding: 0;
+          width: 32px;
+          height: 32px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: color 0.2s;
+        }
+
+        .close-btn:hover {
+          color: #0B1320;
+        }
+
+        .modal-form {
+          padding: 1.75rem;
+          display: flex;
+          flex-direction: column;
+          gap: 1rem;
+        }
+
+        .modal-form label {
+          display: flex;
+          flex-direction: column;
+          gap: 0.35rem;
+        }
+
+        .modal-form label span {
+          color: #0B1320;
+          font-size: 0.85rem;
+          font-weight: 500;
+        }
+
+        .modal-form input,
+        .modal-form select,
+        .modal-form textarea {
+          background: #FFFFFF;
+          border: 1px solid #E6E9EF;
+          color: #0B1320;
+          padding: 0.75rem 1rem;
+          border-radius: 8px;
+          font-size: 0.95rem;
+          transition: border-color 0.2s;
+          resize: vertical;
+        }
+
+        .modal-form input:focus,
+        .modal-form select:focus,
+        .modal-form textarea:focus {
+          outline: none;
+          border-color: #D4AF37;
+          box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.12);
+        }
+
+        .row {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 1rem;
+        }
+
+        .modal-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 0.75rem;
+          margin-top: 0.5rem;
+        }
+
+        .modal-body-text {
+          padding: 1.25rem 1.75rem;
+          color: #687085;
+          font-size: 0.95rem;
+          line-height: 1.55;
+        }
+
+        .modal-body-text p {
+          margin-bottom: 0.5rem;
+        }
+
+        .modal-body-text strong {
+          color: #DC2626;
+        }
+
+        .btn-primary {
+          background: #D4AF37;
+          color: #0B1320;
+          border: none;
+          padding: 0.8rem 1.5rem;
+          border-radius: 10px;
+          font-weight: 600;
+          font-size: 0.95rem;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .btn-primary:hover {
+          background: #E6C14E;
+        }
+
+        .btn-ghost {
+          background: transparent;
+          color: #687085;
+          border: 1px solid #E6E9EF;
+          padding: 0.75rem 1.5rem;
+          border-radius: 10px;
+          font-weight: 500;
+          font-size: 0.95rem;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .btn-ghost:hover {
+          background: #F0F2F5;
+          color: #0B1320;
+        }
+
+        .btn-danger {
+          background: #DC2626;
+          color: #FFFFFF;
+          border: none;
+          padding: 0.75rem 1.5rem;
+          border-radius: 10px;
+          font-weight: 600;
+          font-size: 0.95rem;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .btn-danger:hover {
+          background: #B91C1C;
+        }
 
         .page-head {
           display: flex; justify-content: space-between; align-items: flex-start;
