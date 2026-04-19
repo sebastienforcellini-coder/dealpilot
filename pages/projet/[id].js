@@ -541,7 +541,7 @@ export default function ProjectDetail() {
       category: "acquisition",
       label: "Prix d'achat du bien",
       icon: "🏠",
-      description: "Déclaré (virement) + Cash + Frais cash",
+      description: "Déclaré (virement) + Cash + Frais d'acquisition",
       input_mode: "split", // mode spécial 3 champs
       hint: "Spécifique Maroc : séparation officiel/cash pour le calcul correct des frais",
     },
@@ -894,6 +894,7 @@ export default function ProjectDetail() {
   // Labels en français
   const contactTypeLabels = {
     agent: "Agent immobilier",
+    vendeur: "Vendeur",
     notaire: "Notaire",
     architecte: "Architecte",
     banque: "Banque",
@@ -904,6 +905,7 @@ export default function ProjectDetail() {
 
   const contactTypeIcons = {
     agent: "🏘️",
+    vendeur: "💰",
     notaire: "⚖️",
     architecte: "📐",
     banque: "🏦",
@@ -1353,7 +1355,7 @@ export default function ProjectDetail() {
                                         )}
                                         {Number(c.amount_cash_fees) > 0 && (
                                           <div className="subline subline-cash">
-                                            <span className="subline-label">💵 Frais cash</span>
+                                            <span className="subline-label">💵 Frais d'acquisition</span>
                                             <span className="subline-value">{formatAmount(c.amount_cash_fees, project.currency)}</span>
                                           </div>
                                         )}
@@ -2135,7 +2137,7 @@ export default function ProjectDetail() {
                       <small className="field-hint">Complément cash versé au vendeur (non déclaré).</small>
                     </label>
                     <label>
-                      <span>💵 Frais d'acquisition cash ({project.currency})</span>
+                      <span>💵 Frais d'acquisition ({project.currency})</span>
                       <input
                         type="number"
                         value={costData.amount_cash_fees}
@@ -2451,6 +2453,7 @@ export default function ProjectDetail() {
                           onChange={(e) => setContactData({ ...contactData, type: e.target.value })}
                         >
                           <option value="agent">🏘️ Agent immobilier</option>
+                          <option value="vendeur">💰 Vendeur</option>
                           <option value="notaire">⚖️ Notaire</option>
                           <option value="architecte">📐 Architecte</option>
                           <option value="banque">🏦 Banque</option>
