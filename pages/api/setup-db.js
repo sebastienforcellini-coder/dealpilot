@@ -141,6 +141,27 @@ export default async function handler(req, res) {
     `;
     results.push("✅ Table costs");
 
+    // Migration : ajouter les colonnes manquantes (status, contact_id, type_key, base_amount, tax_rate, fixed_fee, due_date)
+    await sql`ALTER TABLE costs ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'estime'`;
+    await sql`ALTER TABLE costs ADD COLUMN IF NOT EXISTS contact_id INTEGER REFERENCES contacts(id) ON DELETE SET NULL`;
+    await sql`ALTER TABLE costs ADD COLUMN IF NOT EXISTS type_key VARCHAR(50)`;
+    await sql`ALTER TABLE costs ADD COLUMN IF NOT EXISTS input_mode VARCHAR(20) DEFAULT 'amount'`;
+    await sql`ALTER TABLE costs ADD COLUMN IF NOT EXISTS base_amount DECIMAL(14,2)`;
+    await sql`ALTER TABLE costs ADD COLUMN IF NOT EXISTS tax_rate DECIMAL(5,2)`;
+    await sql`ALTER TABLE costs ADD COLUMN IF NOT EXISTS fixed_fee DECIMAL(14,2)`;
+    await sql`ALTER TABLE costs ADD COLUMN IF NOT EXISTS due_date DATE`;
+    await sql`ALTER TABLE costs ADD COLUMN IF NOT EXISTS compromise_date DATE`;
+    await sql`ALTER TABLE costs ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0`;
+    // Split officiel / cash (spécifique immo Maroc : prix déclaré + cash + frais cash)
+    await sql`ALTER TABLE costs ADD COLUMN IF NOT EXISTS amount_official DECIMAL(14,2)`;
+    await sql`ALTER TABLE costs ADD COLUMN IF NOT EXISTS amount_cash DECIMAL(14,2)`;
+    await sql`ALTER TABLE costs ADD COLUMN IF NOT EXISTS amount_cash_fees DECIMAL(14,2)`;
+    // Base de référence pour les pourcentages (official = 800k, real = 1180k)
+    await sql`ALTER TABLE costs ADD COLUMN IF NOT EXISTS base_reference VARCHAR(20) DEFAULT 'official'`;
+    // Marque si la ligne représente du cash (pour affichage)
+    await sql`ALTER TABLE costs ADD COLUMN IF NOT EXISTS is_cash BOOLEAN DEFAULT FALSE`;
+    results.push("✅ Colonnes costs à jour");
+
     // 5. Table works (postes travaux : plomberie, électricité, cuisine...)
     await sql`
       CREATE TABLE IF NOT EXISTS works (

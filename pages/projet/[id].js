@@ -66,6 +66,36 @@ export default function ProjectDetail() {
     project_notes: "",
   });
 
+  // --- COSTS ---
+  const [showCostForm, setShowCostForm] = useState(false);
+  const [editingCostId, setEditingCostId] = useState(null);
+  const [costDeleteId, setCostDeleteId] = useState(null);
+  const [costMenuOpenId, setCostMenuOpenId] = useState(null);
+  const [costCatalogOpen, setCostCatalogOpen] = useState(false);
+  const [costData, setCostData] = useState({
+    type_key: "",
+    category: "acquisition",
+    label: "",
+    input_mode: "amount", // "amount" | "percentage" | "complex" | "split"
+    amount: "",
+    percentage: "",
+    base_amount: "",
+    tax_rate: "",
+    fixed_fee: "",
+    contact_id: "",
+    status: "estime",
+    due_date: "",
+    compromise_date: "",
+    notes: "",
+    // Split prix d'achat (Maroc)
+    amount_official: "",
+    amount_cash: "",
+    amount_cash_fees: "",
+    // Base de référence pour les %
+    base_reference: "official", // "official" (800k) ou "real" (1,180M)
+    is_cash: false,
+  });
+
   // --- INTERACTIONS ---
   const [showInteractionForm, setShowInteractionForm] = useState(null);
   const [expandedContactId, setExpandedContactId] = useState(null);
@@ -503,6 +533,364 @@ export default function ProjectDetail() {
     }
   };
 
+  // ============ CATALOGUE POSTES PRÉ-DÉFINIS (adapté Maroc) ============
+  const costCatalog = [
+    // Acquisition
+    {
+      key: "prix_achat",
+      category: "acquisition",
+      label: "Prix d'achat du bien",
+      icon: "🏠",
+      description: "Déclaré (virement) + Cash + Frais cash",
+      input_mode: "split", // mode spécial 3 champs
+      hint: "Spécifique Maroc : séparation officiel/cash pour le calcul correct des frais",
+    },
+    {
+      key: "honoraires_notaire",
+      category: "acquisition",
+      label: "Honoraires notaire",
+      icon: "⚖️",
+      description: "Commission du notaire (1% min) + TVA 20%",
+      input_mode: "complex",
+      percentage: 1,
+      tax_rate: 20,
+      fixed_fee: 1500,
+      hint: "Au Maroc : 1% du prix déclaré + TVA 20% (minimum 1500 DH)",
+      contact_type: "notaire",
+      default_base: "official", // se calcule sur le prix déclaré
+    },
+    {
+      key: "droits_enregistrement",
+      category: "acquisition",
+      label: "Droits d'enregistrement",
+      icon: "📋",
+      description: "Taxe d'enregistrement obligatoire",
+      input_mode: "percentage",
+      percentage: 4,
+      hint: "4% du prix déclaré (terrain nu : 6%)",
+      default_base: "official",
+    },
+    {
+      key: "conservation_fonciere",
+      category: "acquisition",
+      label: "Conservation foncière",
+      icon: "📜",
+      description: "Frais d'inscription ANCFCC",
+      input_mode: "complex",
+      percentage: 1,
+      fixed_fee: 150,
+      hint: "1% du prix déclaré + 150 DH forfaitaire",
+      default_base: "official",
+    },
+    {
+      key: "frais_divers_notaire",
+      category: "acquisition",
+      label: "Frais divers notaire",
+      icon: "📎",
+      description: "Timbres, certificats, copies",
+      input_mode: "amount",
+      hint: "Entre 1 000 et 3 000 DH selon dossier",
+    },
+    {
+      key: "commission_agent",
+      category: "acquisition",
+      label: "Commission agent immobilier",
+      icon: "🏘️",
+      description: "Commission négociée avec l'agent",
+      input_mode: "percentage",
+      percentage: 2.5,
+      hint: "Au Maroc : entre 2% et 3% selon négociation",
+      contact_type: "agent",
+      default_base: "real", // souvent calculée sur le prix réel
+    },
+    {
+      key: "frais_titrage",
+      category: "acquisition",
+      label: "Frais de titrage (Melkia)",
+      icon: "📐",
+      description: "Géomètre + bornage + immatriculation",
+      input_mode: "amount",
+      hint: "Si bien en Melkia ou réquisition",
+    },
+    {
+      key: "diagnostics",
+      category: "acquisition",
+      label: "Diagnostics & expertises",
+      icon: "🔍",
+      description: "Expertises techniques du bien",
+      input_mode: "amount",
+    },
+
+    // Travaux
+    {
+      key: "travaux",
+      category: "travaux",
+      label: "Travaux (enveloppe globale)",
+      icon: "🔨",
+      description: "À détailler en postes plus tard",
+      input_mode: "amount",
+      hint: "Vous pourrez détailler par corps de métier plus tard",
+    },
+
+    // Mobilier
+    {
+      key: "mobilier",
+      category: "mobilier",
+      label: "Mobilier & décoration",
+      icon: "🪑",
+      description: "Ameublement, décoration, électroménager",
+      input_mode: "amount",
+    },
+
+    // Autre
+    {
+      key: "autre",
+      category: "autre",
+      label: "Autre poste",
+      icon: "📝",
+      description: "Saisie libre",
+      input_mode: "amount",
+    },
+  ];
+
+  const categoryLabels = {
+    acquisition: "🏠 Acquisition",
+    travaux: "🔨 Travaux",
+    mobilier: "🪑 Mobilier & Déco",
+    autre: "📝 Autres frais",
+  };
+
+  const categoryColors = {
+    acquisition: "#D4AF37",
+    travaux: "#3B82F6",
+    mobilier: "#8B5CF6",
+    autre: "#6B7280",
+  };
+
+  const costStatusLabels = {
+    estime: "Estimé",
+    engage: "Engagé",
+    paye: "Payé",
+  };
+
+  // ============ CALCULS ============
+  // Calcule le montant final d'un coût selon son mode de saisie
+  const computeCostAmount = (cost) => {
+    if (!cost) return 0;
+    // Mode split (prix d'achat avec 3 champs) → total = déclaré + cash + frais cash
+    if (cost.input_mode === "split") {
+      const official = Number(cost.amount_official || 0);
+      const cash = Number(cost.amount_cash || 0);
+      const cashFees = Number(cost.amount_cash_fees || 0);
+      return Math.round(official + cash + cashFees);
+    }
+    // Mode montant direct
+    if (cost.input_mode === "amount" || !cost.input_mode) {
+      return Number(cost.amount || 0);
+    }
+    // Mode pourcentage simple
+    if (cost.input_mode === "percentage") {
+      const base = Number(cost.base_amount || getPurchasePrice(cost.base_reference) || 0);
+      return Math.round(base * Number(cost.percentage || 0) / 100);
+    }
+    // Mode complexe (% + TVA + forfait) : ex honoraires notaire
+    if (cost.input_mode === "complex") {
+      const base = Number(cost.base_amount || getPurchasePrice(cost.base_reference) || 0);
+      const pct = Number(cost.percentage || 0);
+      const tax = Number(cost.tax_rate || 0);
+      const fixed = Number(cost.fixed_fee || 0);
+      const baseAmount = base * pct / 100;
+      const withTax = baseAmount * (1 + tax / 100);
+      return Math.round(withTax + fixed);
+    }
+    return Number(cost.amount || 0);
+  };
+
+  // Récupère le prix d'achat selon la base demandée
+  // reference = "official" → retourne juste amount_official (800k)
+  // reference = "real" → retourne le total (1,180M)
+  const getPurchasePrice = (reference = "official") => {
+    const purchase = costs.find((c) => c.type_key === "prix_achat");
+    if (!purchase) return 0;
+    if (purchase.input_mode === "split") {
+      if (reference === "real") {
+        return Number(purchase.amount_official || 0) + Number(purchase.amount_cash || 0) + Number(purchase.amount_cash_fees || 0);
+      }
+      return Number(purchase.amount_official || 0);
+    }
+    // Si pas en mode split, on retourne juste le montant simple
+    return Number(purchase.amount || 0);
+  };
+
+  // ============ CRUD COSTS ============
+  const resetCostForm = () => {
+    setCostData({
+      type_key: "",
+      category: "acquisition",
+      label: "",
+      input_mode: "amount",
+      amount: "",
+      percentage: "",
+      base_amount: "",
+      tax_rate: "",
+      fixed_fee: "",
+      contact_id: "",
+      status: "estime",
+      due_date: "",
+      compromise_date: "",
+      notes: "",
+      amount_official: "",
+      amount_cash: "",
+      amount_cash_fees: "",
+      base_reference: "official",
+      is_cash: false,
+    });
+    setEditingCostId(null);
+    setShowCostForm(false);
+    setCostCatalogOpen(false);
+  };
+
+  // Ouvrir le catalogue (choisir un poste pré-défini)
+  const openCostCatalog = () => {
+    resetCostForm();
+    setCostCatalogOpen(true);
+  };
+
+  // Sélectionner un poste du catalogue → pré-remplit le formulaire
+  const pickCostFromCatalog = (item) => {
+    // Base par défaut du poste (définie dans le catalogue)
+    const baseRef = item.default_base || "official";
+    const purchasePrice = getPurchasePrice(baseRef);
+    // Pré-sélection du contact (agent ou notaire) si on a dejà un contact de ce type associé
+    let preContactId = "";
+    if (item.contact_type) {
+      const match = contacts.find((c) => c.type === item.contact_type);
+      if (match) preContactId = String(match.id);
+      // Pour l'agent, on utilise la commission du contact en priorité
+      if (item.contact_type === "agent" && match && match.commission_percentage) {
+        item = { ...item, percentage: Number(match.commission_percentage) };
+      }
+    }
+    setCostData({
+      type_key: item.key,
+      category: item.category,
+      label: item.label,
+      input_mode: item.input_mode,
+      amount: "",
+      percentage: item.percentage ? String(item.percentage) : "",
+      base_amount: purchasePrice ? String(purchasePrice) : "",
+      tax_rate: item.tax_rate ? String(item.tax_rate) : "",
+      fixed_fee: item.fixed_fee ? String(item.fixed_fee) : "",
+      contact_id: preContactId,
+      status: "estime",
+      due_date: "",
+      compromise_date: "",
+      notes: "",
+      amount_official: "",
+      amount_cash: "",
+      amount_cash_fees: "",
+      base_reference: baseRef,
+      is_cash: false,
+    });
+    setCostCatalogOpen(false);
+    setShowCostForm(true);
+  };
+
+  // Ouvrir en mode édition
+  const openEditCost = (cost) => {
+    setCostData({
+      type_key: cost.type_key || "",
+      category: cost.category || "acquisition",
+      label: cost.label || "",
+      input_mode: cost.input_mode || "amount",
+      amount: cost.amount ? String(cost.amount) : "",
+      percentage: cost.percentage ? String(cost.percentage) : "",
+      base_amount: cost.base_amount ? String(cost.base_amount) : "",
+      tax_rate: cost.tax_rate ? String(cost.tax_rate) : "",
+      fixed_fee: cost.fixed_fee ? String(cost.fixed_fee) : "",
+      contact_id: cost.contact_id ? String(cost.contact_id) : "",
+      status: cost.status || "estime",
+      due_date: cost.due_date ? cost.due_date.substring(0, 10) : "",
+      compromise_date: cost.compromise_date ? cost.compromise_date.substring(0, 10) : "",
+      notes: cost.notes || "",
+      amount_official: cost.amount_official ? String(cost.amount_official) : "",
+      amount_cash: cost.amount_cash ? String(cost.amount_cash) : "",
+      amount_cash_fees: cost.amount_cash_fees ? String(cost.amount_cash_fees) : "",
+      base_reference: cost.base_reference || "official",
+      is_cash: cost.is_cash || false,
+    });
+    setEditingCostId(cost.id);
+    setShowCostForm(true);
+    setCostMenuOpenId(null);
+  };
+
+  const handleCostSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      // Calcul du montant final à stocker
+      const finalAmount = computeCostAmount(costData);
+
+      const body = {
+        type_key: costData.type_key || null,
+        category: costData.category,
+        label: costData.label,
+        amount: finalAmount,
+        currency: project.currency,
+        percentage: costData.percentage || null,
+        base_amount: costData.base_amount || null,
+        tax_rate: costData.tax_rate || null,
+        fixed_fee: costData.fixed_fee || null,
+        input_mode: costData.input_mode,
+        contact_id: costData.contact_id || null,
+        status: costData.status,
+        due_date: costData.due_date || null,
+        compromise_date: costData.compromise_date || null,
+        notes: costData.notes,
+        // Champs split (pour prix d'achat)
+        amount_official: costData.amount_official || null,
+        amount_cash: costData.amount_cash || null,
+        amount_cash_fees: costData.amount_cash_fees || null,
+        base_reference: costData.base_reference || "official",
+        is_cash: costData.is_cash || false,
+      };
+
+      const url = editingCostId ? `/api/costs/${editingCostId}` : "/api/costs";
+      const method = editingCostId ? "PATCH" : "POST";
+      const finalBody = editingCostId ? body : { ...body, project_id: Number(id) };
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(finalBody),
+      });
+
+      const json = await res.json();
+      if (json.success) {
+        resetCostForm();
+        fetchProject();
+      } else {
+        alert("Erreur : " + (json.error || "inconnue"));
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Erreur réseau");
+    }
+  };
+
+  const deleteCost = async (cId) => {
+    try {
+      const res = await fetch(`/api/costs/${cId}`, { method: "DELETE" });
+      const json = await res.json();
+      if (json.success) {
+        setCostDeleteId(null);
+        setCostMenuOpenId(null);
+        fetchProject();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   // Labels en français
   const contactTypeLabels = {
     agent: "Agent immobilier",
@@ -578,6 +966,24 @@ export default function ProjectDetail() {
   const totalWorksEstimated = works.reduce((sum, w) => sum + Number(w.estimated_amount || 0), 0);
   const totalWorksActual = works.reduce((sum, w) => sum + Number(w.actual_amount || 0), 0);
   const grandTotal = totalCosts + totalWorksEstimated;
+
+  // Calculs de totaux par catégorie (Budget & Coûts)
+  const costsByCategory = {
+    acquisition: costs.filter((c) => c.category === "acquisition"),
+    travaux: costs.filter((c) => c.category === "travaux"),
+    mobilier: costs.filter((c) => c.category === "mobilier"),
+    autre: costs.filter((c) => c.category === "autre"),
+  };
+  const totalByCategory = {
+    acquisition: costsByCategory.acquisition.reduce((s, c) => s + Number(c.amount || 0), 0),
+    travaux: costsByCategory.travaux.reduce((s, c) => s + Number(c.amount || 0), 0),
+    mobilier: costsByCategory.mobilier.reduce((s, c) => s + Number(c.amount || 0), 0),
+    autre: costsByCategory.autre.reduce((s, c) => s + Number(c.amount || 0), 0),
+  };
+  const grandTotalCosts = Object.values(totalByCategory).reduce((s, v) => s + v, 0);
+  const targetBudget = Number(project?.target_budget || 0);
+  const budgetUsagePercent = targetBudget > 0 ? Math.round((grandTotalCosts / targetBudget) * 100) : 0;
+  const budgetRemaining = targetBudget - grandTotalCosts;
 
   return (
     <>
@@ -771,14 +1177,251 @@ export default function ProjectDetail() {
             )}
 
             {activeTab === "budget" && (
-              <div className="placeholder-card">
-                <h3>Budget & Coûts</h3>
-                <p>Détail complet des coûts d'acquisition et des postes travaux.</p>
-                <p className="coming-soon">⏳ Interface d'édition en cours de construction (étape 2)</p>
-                <div className="quick-summary">
-                  <div className="quick-row"><span>Coûts d'achat ({costs.length} lignes)</span><strong>{formatAmount(totalCosts, project.currency)}</strong></div>
-                  <div className="quick-row"><span>Travaux estimés ({works.length} postes)</span><strong>{formatAmount(totalWorksEstimated, project.currency)}</strong></div>
+              <div className="budget-section">
+                {/* En-tête avec totaux et progression */}
+                <div className="budget-header">
+                  <div className="budget-header-title">
+                    <h3 className="section-title">Budget & Coûts</h3>
+                    <p className="section-subtitle">
+                      {costs.length === 0
+                        ? "Aucun poste de coût saisi pour le moment"
+                        : `${costs.length} poste${costs.length > 1 ? "s" : ""} · ${formatAmount(grandTotalCosts, project.currency)}`}
+                    </p>
+                  </div>
+                  <div className="budget-header-actions">
+                    <button className="btn-primary" onClick={openCostCatalog}>
+                      + Ajouter un coût
+                    </button>
+                  </div>
                 </div>
+
+                {/* Barre de progression vs budget cible */}
+                {targetBudget > 0 && (
+                  <div className="budget-progress-card">
+                    <div className="progress-top">
+                      <div>
+                        <span className="progress-label">Budget cible</span>
+                        <span className="progress-target">{formatAmount(targetBudget, project.currency)}</span>
+                      </div>
+                      <div className="progress-right">
+                        <span className="progress-label">{budgetUsagePercent > 100 ? "Dépassement" : "Consommé"}</span>
+                        <span className={`progress-used ${budgetUsagePercent > 100 ? "over" : ""}`}>
+                          {budgetUsagePercent}%
+                        </span>
+                      </div>
+                    </div>
+                    <div className="progress-bar">
+                      <div
+                        className={`progress-fill ${budgetUsagePercent > 100 ? "over" : ""}`}
+                        style={{ width: `${Math.min(budgetUsagePercent, 100)}%` }}
+                      />
+                      {budgetUsagePercent > 100 && (
+                        <div className="progress-over-indicator" style={{ width: `${Math.min(budgetUsagePercent - 100, 30)}%` }} />
+                      )}
+                    </div>
+                    <div className="progress-bottom">
+                      <span>Consommé : <strong>{formatAmount(grandTotalCosts, project.currency)}</strong></span>
+                      <span className={budgetRemaining < 0 ? "over-text" : ""}>
+                        {budgetRemaining < 0 ? "Dépassement" : "Reste"} : <strong>{formatAmount(Math.abs(budgetRemaining), project.currency)}</strong>
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Donut + Catégories */}
+                {costs.length > 0 && (
+                  <div className="budget-layout">
+                    {/* Donut répartition */}
+                    <div className="donut-card">
+                      <h4 className="donut-title">Répartition</h4>
+                      <div className="donut-wrapper">
+                        <svg viewBox="0 0 42 42" className="donut-svg">
+                          <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#F3F4F6" strokeWidth="4" />
+                          {(() => {
+                            let offset = 0;
+                            const segments = [];
+                            for (const cat of ["acquisition", "travaux", "mobilier", "autre"]) {
+                              const value = totalByCategory[cat];
+                              if (value === 0 || grandTotalCosts === 0) continue;
+                              const pct = (value / grandTotalCosts) * 100;
+                              segments.push(
+                                <circle
+                                  key={cat}
+                                  cx="21"
+                                  cy="21"
+                                  r="15.915"
+                                  fill="transparent"
+                                  stroke={categoryColors[cat]}
+                                  strokeWidth="4"
+                                  strokeDasharray={`${pct} ${100 - pct}`}
+                                  strokeDashoffset={-offset}
+                                  transform="rotate(-90 21 21)"
+                                />
+                              );
+                              offset += pct;
+                            }
+                            return segments;
+                          })()}
+                        </svg>
+                        <div className="donut-center">
+                          <span className="donut-center-value">{formatAmount(grandTotalCosts, project.currency)}</span>
+                          <span className="donut-center-label">Total</span>
+                        </div>
+                      </div>
+                      <ul className="donut-legend">
+                        {["acquisition", "travaux", "mobilier", "autre"].map((cat) => {
+                          const value = totalByCategory[cat];
+                          if (value === 0) return null;
+                          const pct = grandTotalCosts > 0 ? Math.round((value / grandTotalCosts) * 100) : 0;
+                          return (
+                            <li key={cat}>
+                              <span className="legend-dot" style={{ background: categoryColors[cat] }}></span>
+                              <span className="legend-label">{categoryLabels[cat]}</span>
+                              <span className="legend-value">{pct}%</span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+
+                    {/* Liste par catégorie */}
+                    <div className="costs-list">
+                      {["acquisition", "travaux", "mobilier", "autre"].map((cat) => {
+                        const items = costsByCategory[cat];
+                        if (items.length === 0) return null;
+
+                        return (
+                          <div key={cat} className="cost-category">
+                            <div className="cat-header">
+                              <h4>
+                                <span className="cat-color" style={{ background: categoryColors[cat] }}></span>
+                                {categoryLabels[cat]}
+                              </h4>
+                              <span className="cat-total">{formatAmount(totalByCategory[cat], project.currency)}</span>
+                            </div>
+                            <div className="cost-items">
+                              {items.map((c) => (
+                                <div key={c.id} className="cost-item">
+                                  <div className="cost-main">
+                                    <div className="cost-label-row">
+                                      <span className="cost-label">{c.label}</span>
+                                      <span className={`cost-status status-${c.status}`}>
+                                        {costStatusLabels[c.status] || c.status}
+                                      </span>
+                                      {c.is_cash && (
+                                        <span className="cash-tag">💵 CASH</span>
+                                      )}
+                                    </div>
+                                    <div className="cost-meta">
+                                      {c.input_mode === "split" && (
+                                        <span className="cost-tag">Déclaré {formatAmount(c.amount_official, project.currency)} + Cash {formatAmount((Number(c.amount_cash) || 0) + (Number(c.amount_cash_fees) || 0), project.currency)}</span>
+                                      )}
+                                      {c.input_mode === "percentage" && c.percentage && (
+                                        <span className="cost-tag">
+                                          {c.percentage}% × {formatAmount(c.base_amount || 0, project.currency)}
+                                          {c.base_reference === "real" && <span className="base-ref-indicator"> (prix réel)</span>}
+                                        </span>
+                                      )}
+                                      {c.input_mode === "complex" && (
+                                        <span className="cost-tag">
+                                          {c.percentage}% × {formatAmount(c.base_amount || 0, project.currency)} + TVA {c.tax_rate}% + {formatAmount(c.fixed_fee, project.currency)}
+                                          {c.base_reference === "real" && <span className="base-ref-indicator"> (prix réel)</span>}
+                                        </span>
+                                      )}
+                                      {c.contact_name && (
+                                        <span className="cost-contact">→ {c.contact_name}</span>
+                                      )}
+                                      {c.compromise_date && (
+                                        <span className="cost-date">📅 Compromis : {new Date(c.compromise_date).toLocaleDateString("fr-FR")}</span>
+                                      )}
+                                      {c.due_date && (
+                                        <span className="cost-date">📅 Acte : {new Date(c.due_date).toLocaleDateString("fr-FR")}</span>
+                                      )}
+                                    </div>
+                                    {/* Sous-lignes visuelles pour le prix d'achat en mode split */}
+                                    {c.input_mode === "split" && (
+                                      <div className="split-sublines">
+                                        <div className="subline">
+                                          <span className="subline-label">💳 Déclaré / virement</span>
+                                          <span className="subline-value">{formatAmount(c.amount_official, project.currency)}</span>
+                                        </div>
+                                        {Number(c.amount_cash) > 0 && (
+                                          <div className="subline subline-cash">
+                                            <span className="subline-label">💵 Cash</span>
+                                            <span className="subline-value">{formatAmount(c.amount_cash, project.currency)}</span>
+                                          </div>
+                                        )}
+                                        {Number(c.amount_cash_fees) > 0 && (
+                                          <div className="subline subline-cash">
+                                            <span className="subline-label">💵 Frais cash</span>
+                                            <span className="subline-value">{formatAmount(c.amount_cash_fees, project.currency)}</span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="cost-right">
+                                    <span className="cost-amount">{formatAmount(c.amount, project.currency)}</span>
+                                    {project.currency !== "EUR" && (
+                                      <span className="cost-amount-eur">≈ {Number(toEUR(c.amount, project.currency)).toLocaleString("fr-FR")} €</span>
+                                    )}
+                                  </div>
+                                  <div className="cost-menu-wrapper">
+                                    <button
+                                      className="menu-trigger"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setCostMenuOpenId(costMenuOpenId === c.id ? null : c.id);
+                                      }}
+                                      aria-label="Options"
+                                    >
+                                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                        <circle cx="12" cy="5" r="2" />
+                                        <circle cx="12" cy="12" r="2" />
+                                        <circle cx="12" cy="19" r="2" />
+                                      </svg>
+                                    </button>
+                                    {costMenuOpenId === c.id && (
+                                      <>
+                                        <div className="menu-backdrop" onClick={() => setCostMenuOpenId(null)} />
+                                        <div className="menu-dropdown">
+                                          <button className="menu-item" onClick={() => openEditCost(c)}>
+                                            ✏️ Modifier
+                                          </button>
+                                          <button
+                                            className="menu-item menu-item-danger"
+                                            onClick={() => {
+                                              setCostDeleteId(c.id);
+                                              setCostMenuOpenId(null);
+                                            }}
+                                          >
+                                            🗑️ Supprimer
+                                          </button>
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* État vide */}
+                {costs.length === 0 && (
+                  <div className="empty-state">
+                    <div className="empty-icon-big">💰</div>
+                    <h4>Aucun poste de coût</h4>
+                    <p>Commencez par ajouter le prix d'achat, les frais notaire, la commission agent, etc. Les postes courants au Maroc sont pré-configurés.</p>
+                    <button className="btn-primary" onClick={openCostCatalog}>
+                      + Ajouter un premier coût
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1316,6 +1959,420 @@ export default function ProjectDetail() {
                 </button>
                 <button type="button" className="btn-danger" onClick={handleDelete}>
                   Supprimer définitivement
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL CATALOGUE DES POSTES DE COÛT */}
+        {costCatalogOpen && (
+          <div className="modal-overlay" onClick={() => setCostCatalogOpen(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h2>Choisir un type de coût</h2>
+                <button className="close-btn" onClick={() => setCostCatalogOpen(false)}>×</button>
+              </div>
+              <div className="info-banner">
+                Postes pré-configurés pour l'immobilier au Maroc. Sélectionnez un poste, les % standards seront pré-remplis (vous pourrez les ajuster).
+              </div>
+              <div className="catalog-list">
+                {["acquisition", "travaux", "mobilier", "autre"].map((cat) => {
+                  const items = costCatalog.filter((i) => i.category === cat);
+                  return (
+                    <div key={cat} className="catalog-category">
+                      <h4 className="catalog-cat-title">
+                        <span className="cat-color" style={{ background: categoryColors[cat] }}></span>
+                        {categoryLabels[cat]}
+                      </h4>
+                      <div className="catalog-items">
+                        {items.map((item) => (
+                          <button
+                            key={item.key}
+                            type="button"
+                            className="catalog-item"
+                            onClick={() => pickCostFromCatalog(item)}
+                          >
+                            <span className="catalog-icon">{item.icon}</span>
+                            <div className="catalog-text">
+                              <div className="catalog-label">{item.label}</div>
+                              <div className="catalog-description">{item.description}</div>
+                              {item.hint && <div className="catalog-hint">💡 {item.hint}</div>}
+                            </div>
+                            {item.percentage && (
+                              <span className="catalog-pct">{item.percentage}%</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL FORMULAIRE COÛT */}
+        {showCostForm && (
+          <div className="modal-overlay" onClick={resetCostForm}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h2>{editingCostId ? "Modifier le coût" : "Nouveau coût"}</h2>
+                <button className="close-btn" onClick={resetCostForm}>×</button>
+              </div>
+              <form onSubmit={handleCostSubmit} className="modal-form">
+                <div className="row">
+                  <label>
+                    <span>Catégorie *</span>
+                    <select
+                      required
+                      value={costData.category}
+                      onChange={(e) => setCostData({ ...costData, category: e.target.value })}
+                    >
+                      <option value="acquisition">🏠 Acquisition</option>
+                      <option value="travaux">🔨 Travaux</option>
+                      <option value="mobilier">🪑 Mobilier & Déco</option>
+                      <option value="autre">📝 Autres frais</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Statut</span>
+                    <select
+                      value={costData.status}
+                      onChange={(e) => setCostData({ ...costData, status: e.target.value })}
+                    >
+                      <option value="estime">Estimé</option>
+                      <option value="engage">Engagé</option>
+                      <option value="paye">Payé</option>
+                    </select>
+                  </label>
+                </div>
+
+                <label>
+                  <span>Libellé *</span>
+                  <input
+                    type="text"
+                    required
+                    value={costData.label}
+                    onChange={(e) => setCostData({ ...costData, label: e.target.value })}
+                    placeholder="Ex: Prix d'achat du bien"
+                  />
+                </label>
+
+                {/* Mode de saisie : toggle */}
+                <div className="section-divider">
+                  <span>💰 Montant</span>
+                </div>
+                <div className="commission-toggle mode-toggle">
+                  <button
+                    type="button"
+                    className={`toggle-btn ${costData.input_mode === "amount" ? "toggle-active" : ""}`}
+                    onClick={() => setCostData({ ...costData, input_mode: "amount" })}
+                  >
+                    Montant fixe
+                  </button>
+                  <button
+                    type="button"
+                    className={`toggle-btn ${costData.input_mode === "percentage" ? "toggle-active" : ""}`}
+                    onClick={() => setCostData({ ...costData, input_mode: "percentage" })}
+                  >
+                    % du prix
+                  </button>
+                  <button
+                    type="button"
+                    className={`toggle-btn ${costData.input_mode === "complex" ? "toggle-active" : ""}`}
+                    onClick={() => setCostData({ ...costData, input_mode: "complex" })}
+                  >
+                    % + TVA + forfait
+                  </button>
+                  <button
+                    type="button"
+                    className={`toggle-btn ${costData.input_mode === "split" ? "toggle-active" : ""}`}
+                    onClick={() => setCostData({ ...costData, input_mode: "split" })}
+                  >
+                    Déclaré + Cash 💵
+                  </button>
+                </div>
+
+                {/* Saisie selon le mode */}
+                {costData.input_mode === "amount" && (
+                  <label>
+                    <span>Montant ({project.currency})</span>
+                    <input
+                      type="number"
+                      value={costData.amount}
+                      onChange={(e) => setCostData({ ...costData, amount: e.target.value })}
+                      placeholder="0"
+                    />
+                  </label>
+                )}
+
+                {/* ===== MODE SPLIT : prix d'achat avec 3 champs (spécifique Maroc) ===== */}
+                {costData.input_mode === "split" && (
+                  <>
+                    <div className="split-banner">
+                      💡 <strong>Spécifique Maroc</strong> : séparez la part déclarée (virement notaire, base des frais officiels) de la part cash (budget réel uniquement).
+                    </div>
+                    <label>
+                      <span>💳 Part déclarée / virement notaire ({project.currency})</span>
+                      <input
+                        type="number"
+                        value={costData.amount_official}
+                        onChange={(e) => setCostData({ ...costData, amount_official: e.target.value })}
+                        placeholder="Ex: 800 000"
+                      />
+                      <small className="field-hint">Ce montant figurera sur l'acte notarié et servira de base aux frais (notaire, enregistrement, conservation).</small>
+                    </label>
+                    <label>
+                      <span>💵 Part cash (complément) ({project.currency})</span>
+                      <input
+                        type="number"
+                        value={costData.amount_cash}
+                        onChange={(e) => setCostData({ ...costData, amount_cash: e.target.value })}
+                        placeholder="Ex: 350 000"
+                      />
+                      <small className="field-hint">Complément cash versé au vendeur (non déclaré).</small>
+                    </label>
+                    <label>
+                      <span>💵 Frais d'acquisition cash ({project.currency})</span>
+                      <input
+                        type="number"
+                        value={costData.amount_cash_fees}
+                        onChange={(e) => setCostData({ ...costData, amount_cash_fees: e.target.value })}
+                        placeholder="Ex: 30 000"
+                      />
+                      <small className="field-hint">Participation cash aux frais d'acquisition.</small>
+                    </label>
+                    <div className="calc-preview split-preview">
+                      <div className="split-line">
+                        <span>Prix déclaré (base des frais officiels) :</span>
+                        <strong>{formatAmount(costData.amount_official || 0, project.currency)}</strong>
+                      </div>
+                      <div className="split-line cash-line">
+                        <span>💵 Total cash :</span>
+                        <strong>{formatAmount((Number(costData.amount_cash) || 0) + (Number(costData.amount_cash_fees) || 0), project.currency)}</strong>
+                      </div>
+                      <div className="split-line split-total">
+                        <span>Prix d'achat réel (budget global) :</span>
+                        <strong>{formatAmount(computeCostAmount(costData), project.currency)}</strong>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {costData.input_mode === "percentage" && (
+                  <>
+                    {/* Sélecteur de base pour le calcul */}
+                    {getPurchasePrice("real") > 0 && getPurchasePrice("real") !== getPurchasePrice("official") && (
+                      <div className="base-ref-selector">
+                        <span className="base-ref-label">Calcul sur :</span>
+                        <label className="base-ref-option">
+                          <input
+                            type="radio"
+                            name="base_ref"
+                            checked={costData.base_reference === "official"}
+                            onChange={() => setCostData({ ...costData, base_reference: "official", base_amount: String(getPurchasePrice("official")) })}
+                          />
+                          <span>Prix déclaré : <strong>{formatAmount(getPurchasePrice("official"), project.currency)}</strong></span>
+                        </label>
+                        <label className="base-ref-option">
+                          <input
+                            type="radio"
+                            name="base_ref"
+                            checked={costData.base_reference === "real"}
+                            onChange={() => setCostData({ ...costData, base_reference: "real", base_amount: String(getPurchasePrice("real")) })}
+                          />
+                          <span>Prix réel : <strong>{formatAmount(getPurchasePrice("real"), project.currency)}</strong></span>
+                        </label>
+                      </div>
+                    )}
+                    <div className="row">
+                      <label>
+                        <span>Pourcentage (%)</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={costData.percentage}
+                          onChange={(e) => setCostData({ ...costData, percentage: e.target.value })}
+                          placeholder="Ex: 4"
+                        />
+                      </label>
+                      <label>
+                        <span>Base de calcul ({project.currency})</span>
+                        <input
+                          type="number"
+                          value={costData.base_amount}
+                          onChange={(e) => setCostData({ ...costData, base_amount: e.target.value })}
+                          placeholder="Prix d'achat par défaut"
+                        />
+                      </label>
+                    </div>
+                    {costData.percentage && costData.base_amount && (
+                      <div className="calc-preview">
+                        = {formatAmount(computeCostAmount(costData), project.currency)}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {costData.input_mode === "complex" && (
+                  <>
+                    {/* Sélecteur de base pour le calcul */}
+                    {getPurchasePrice("real") > 0 && getPurchasePrice("real") !== getPurchasePrice("official") && (
+                      <div className="base-ref-selector">
+                        <span className="base-ref-label">Calcul sur :</span>
+                        <label className="base-ref-option">
+                          <input
+                            type="radio"
+                            name="base_ref_cmplx"
+                            checked={costData.base_reference === "official"}
+                            onChange={() => setCostData({ ...costData, base_reference: "official", base_amount: String(getPurchasePrice("official")) })}
+                          />
+                          <span>Prix déclaré : <strong>{formatAmount(getPurchasePrice("official"), project.currency)}</strong></span>
+                        </label>
+                        <label className="base-ref-option">
+                          <input
+                            type="radio"
+                            name="base_ref_cmplx"
+                            checked={costData.base_reference === "real"}
+                            onChange={() => setCostData({ ...costData, base_reference: "real", base_amount: String(getPurchasePrice("real")) })}
+                          />
+                          <span>Prix réel : <strong>{formatAmount(getPurchasePrice("real"), project.currency)}</strong></span>
+                        </label>
+                      </div>
+                    )}
+                    <div className="row">
+                      <label>
+                        <span>Pourcentage (%)</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={costData.percentage}
+                          onChange={(e) => setCostData({ ...costData, percentage: e.target.value })}
+                          placeholder="Ex: 1"
+                        />
+                      </label>
+                      <label>
+                        <span>Base ({project.currency})</span>
+                        <input
+                          type="number"
+                          value={costData.base_amount}
+                          onChange={(e) => setCostData({ ...costData, base_amount: e.target.value })}
+                          placeholder="Prix d'achat"
+                        />
+                      </label>
+                    </div>
+                    <div className="row">
+                      <label>
+                        <span>TVA (%)</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={costData.tax_rate}
+                          onChange={(e) => setCostData({ ...costData, tax_rate: e.target.value })}
+                          placeholder="Ex: 20"
+                        />
+                      </label>
+                      <label>
+                        <span>Forfait fixe ({project.currency})</span>
+                        <input
+                          type="number"
+                          value={costData.fixed_fee}
+                          onChange={(e) => setCostData({ ...costData, fixed_fee: e.target.value })}
+                          placeholder="Ex: 150"
+                        />
+                      </label>
+                    </div>
+                    {costData.percentage && costData.base_amount && (
+                      <div className="calc-preview">
+                        Calcul : {costData.base_amount} × {costData.percentage}% × (1 + {costData.tax_rate || 0}%) + {costData.fixed_fee || 0} =
+                        <strong> {formatAmount(computeCostAmount(costData), project.currency)}</strong>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                <div className="section-divider">
+                  <span>Détails</span>
+                </div>
+
+                <label>
+                  <span>Contact associé (optionnel)</span>
+                  <select
+                    value={costData.contact_id}
+                    onChange={(e) => setCostData({ ...costData, contact_id: e.target.value })}
+                  >
+                    <option value="">— Aucun contact —</option>
+                    {contacts.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {contactTypeIcons[c.type] || "👤"} {c.name} ({contactTypeLabels[c.type] || c.type})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <div className="row">
+                  <label>
+                    <span>📅 Date compromis</span>
+                    <input
+                      type="date"
+                      value={costData.compromise_date}
+                      onChange={(e) => setCostData({ ...costData, compromise_date: e.target.value })}
+                    />
+                    <small className="field-hint">Paiement prévu à la signature du compromis (ex: acompte)</small>
+                  </label>
+                  <label>
+                    <span>📅 Date acte définitif</span>
+                    <input
+                      type="date"
+                      value={costData.due_date}
+                      onChange={(e) => setCostData({ ...costData, due_date: e.target.value })}
+                    />
+                    <small className="field-hint">Paiement prévu à la signature de l'acte</small>
+                  </label>
+                </div>
+
+                <label>
+                  <span>Notes</span>
+                  <textarea
+                    rows="2"
+                    value={costData.notes}
+                    onChange={(e) => setCostData({ ...costData, notes: e.target.value })}
+                    placeholder="Informations complémentaires..."
+                  />
+                </label>
+
+                <div className="modal-actions">
+                  <button type="button" className="btn-ghost" onClick={resetCostForm}>
+                    Annuler
+                  </button>
+                  <button type="submit" className="btn-primary">
+                    {editingCostId ? "Enregistrer" : "Ajouter le coût"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL CONFIRMATION SUPPRESSION COÛT */}
+        {costDeleteId && (
+          <div className="modal-overlay" onClick={() => setCostDeleteId(null)}>
+            <div className="modal modal-small" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h2>Supprimer ce coût ?</h2>
+                <button className="close-btn" onClick={() => setCostDeleteId(null)}>×</button>
+              </div>
+              <div className="modal-body-text">
+                <p>Cette action est <strong>irréversible</strong>.</p>
+              </div>
+              <div className="modal-actions" style={{ padding: "1rem 1.75rem 1.75rem" }}>
+                <button type="button" className="btn-ghost" onClick={() => setCostDeleteId(null)}>
+                  Annuler
+                </button>
+                <button type="button" className="btn-danger" onClick={() => deleteCost(costDeleteId)}>
+                  Supprimer
                 </button>
               </div>
             </div>
@@ -2255,6 +3312,557 @@ export default function ProjectDetail() {
         }
         .wa-icon {
           font-size: 0.9rem;
+        }
+
+        /* ============ SECTION BUDGET & COÛTS ============ */
+        .budget-section {
+          display: flex;
+          flex-direction: column;
+          gap: 1.5rem;
+        }
+
+        .budget-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 1rem;
+          flex-wrap: wrap;
+        }
+
+        .budget-header-actions {
+          display: flex;
+          gap: 0.75rem;
+          flex-wrap: wrap;
+        }
+
+        /* Barre de progression vs budget cible */
+        .budget-progress-card {
+          background: #FFFFFF;
+          border: 1px solid #EEF0F4;
+          border-radius: 14px;
+          padding: 1.25rem 1.5rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+        }
+        .progress-top {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+        }
+        .progress-right { text-align: right; }
+        .progress-label {
+          display: block;
+          font-size: 0.7rem;
+          color: #687085;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          font-weight: 500;
+          margin-bottom: 0.2rem;
+        }
+        .progress-target {
+          display: block;
+          font-size: 1.1rem;
+          font-weight: 600;
+          color: #0B1320;
+        }
+        .progress-used {
+          display: block;
+          font-size: 1.1rem;
+          font-weight: 600;
+          color: #D4AF37;
+        }
+        .progress-used.over { color: #DC2626; }
+        .progress-bar {
+          width: 100%;
+          height: 10px;
+          background: #F3F4F6;
+          border-radius: 5px;
+          overflow: hidden;
+          position: relative;
+          display: flex;
+        }
+        .progress-fill {
+          height: 100%;
+          background: linear-gradient(90deg, #D4AF37 0%, #E6C14E 100%);
+          border-radius: 5px;
+          transition: width 0.4s ease;
+        }
+        .progress-fill.over {
+          background: linear-gradient(90deg, #D4AF37 0%, #DC2626 100%);
+        }
+        .progress-over-indicator {
+          height: 100%;
+          background: repeating-linear-gradient(
+            45deg,
+            #DC2626,
+            #DC2626 6px,
+            #B91C1C 6px,
+            #B91C1C 12px
+          );
+        }
+        .progress-bottom {
+          display: flex;
+          justify-content: space-between;
+          font-size: 0.85rem;
+          color: #687085;
+        }
+        .progress-bottom strong { color: #0B1320; }
+        .over-text strong { color: #DC2626; }
+
+        /* Layout principal : donut à gauche, liste à droite */
+        .budget-layout {
+          display: grid;
+          grid-template-columns: 320px 1fr;
+          gap: 1.5rem;
+          align-items: flex-start;
+        }
+        @media (max-width: 900px) {
+          .budget-layout {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        /* Donut */
+        .donut-card {
+          background: #FFFFFF;
+          border: 1px solid #EEF0F4;
+          border-radius: 14px;
+          padding: 1.5rem;
+          position: sticky;
+          top: 1.5rem;
+        }
+        .donut-title {
+          font-size: 0.85rem;
+          font-weight: 600;
+          color: #0B1320;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          margin-bottom: 1rem;
+        }
+        .donut-wrapper {
+          position: relative;
+          width: 200px;
+          height: 200px;
+          margin: 0 auto 1.25rem;
+        }
+        .donut-svg {
+          width: 100%;
+          height: 100%;
+          transform: rotate(-90deg);
+        }
+        .donut-center {
+          position: absolute;
+          inset: 0;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          text-align: center;
+        }
+        .donut-center-value {
+          font-size: 1.1rem;
+          font-weight: 600;
+          color: #0B1320;
+        }
+        .donut-center-label {
+          font-size: 0.75rem;
+          color: #687085;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }
+        .donut-legend {
+          list-style: none;
+          display: flex;
+          flex-direction: column;
+          gap: 0.6rem;
+        }
+        .donut-legend li {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          font-size: 0.85rem;
+        }
+        .legend-dot {
+          width: 10px;
+          height: 10px;
+          border-radius: 50%;
+          flex-shrink: 0;
+        }
+        .legend-label {
+          flex: 1;
+          color: #0B1320;
+        }
+        .legend-value {
+          color: #687085;
+          font-weight: 500;
+        }
+
+        /* Liste des coûts */
+        .costs-list {
+          display: flex;
+          flex-direction: column;
+          gap: 1.25rem;
+        }
+        .cost-category {
+          background: #FFFFFF;
+          border: 1px solid #EEF0F4;
+          border-radius: 14px;
+          /* overflow: hidden retiré pour ne pas couper le menu dropdown */
+        }
+        .cat-header {
+          display: flex;
+          justify-content: space-between;
+          /* arrondi du haut uniquement */
+          border-top-left-radius: 14px;
+          border-top-right-radius: 14px;
+          align-items: center;
+          padding: 0.85rem 1.25rem;
+          background: #F7F8FA;
+          border-bottom: 1px solid #EEF0F4;
+        }
+        .cat-header h4 {
+          font-size: 0.9rem;
+          font-weight: 600;
+          color: #0B1320;
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+          margin: 0;
+        }
+        .cat-color {
+          width: 10px;
+          height: 10px;
+          border-radius: 50%;
+        }
+        .cat-total {
+          font-weight: 600;
+          color: #0B1320;
+        }
+        .cost-items {
+          display: flex;
+          flex-direction: column;
+        }
+        .cost-item {
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+          padding: 0.85rem 1.25rem;
+          border-bottom: 1px solid #F3F4F6;
+        }
+        .cost-item:last-child {
+          border-bottom: none;
+          border-bottom-left-radius: 14px;
+          border-bottom-right-radius: 14px;
+        }
+        .cost-item:hover { background: #FAFBFC; }
+
+        .cost-main {
+          flex: 1;
+          min-width: 0;
+        }
+        .cost-label-row {
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+          margin-bottom: 0.2rem;
+        }
+        .cost-label {
+          font-weight: 500;
+          color: #0B1320;
+          font-size: 0.95rem;
+        }
+        .cost-status {
+          display: inline-block;
+          font-size: 0.7rem;
+          font-weight: 600;
+          padding: 0.15rem 0.5rem;
+          border-radius: 5px;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }
+        .cost-status.status-estime {
+          background: rgba(107, 114, 128, 0.12);
+          color: #4B5563;
+        }
+        .cost-status.status-engage {
+          background: rgba(212, 175, 55, 0.15);
+          color: #9a7f2a;
+        }
+        .cost-status.status-paye {
+          background: rgba(34, 197, 94, 0.12);
+          color: #15803d;
+        }
+        .cost-meta {
+          display: flex;
+          gap: 0.6rem;
+          flex-wrap: wrap;
+          font-size: 0.78rem;
+          color: #687085;
+        }
+        .cost-tag {
+          background: #F3F4F6;
+          padding: 0.1rem 0.45rem;
+          border-radius: 4px;
+          font-weight: 500;
+        }
+        .cost-contact {
+          color: #9a7f2a;
+          font-weight: 500;
+        }
+        .cost-date {
+          color: #687085;
+        }
+
+        .cost-right {
+          text-align: right;
+          flex-shrink: 0;
+        }
+        .cost-amount {
+          display: block;
+          font-weight: 600;
+          color: #0B1320;
+          font-size: 0.95rem;
+        }
+        .cost-amount-eur {
+          display: block;
+          font-size: 0.75rem;
+          color: #687085;
+        }
+
+        .cost-menu-wrapper {
+          position: relative;
+          flex-shrink: 0;
+        }
+
+        /* Preview calcul */
+        .calc-preview {
+          background: #FEFBF2;
+          border: 1px solid rgba(212, 175, 55, 0.25);
+          border-radius: 8px;
+          padding: 0.75rem 1rem;
+          font-size: 0.85rem;
+          color: #687085;
+        }
+        .calc-preview strong {
+          color: #9a7f2a;
+          font-size: 1rem;
+        }
+
+        /* Catalogue */
+        .catalog-list {
+          padding: 1.25rem 1.75rem 1.75rem;
+          display: flex;
+          flex-direction: column;
+          gap: 1.25rem;
+        }
+        .catalog-category {
+          display: flex;
+          flex-direction: column;
+          gap: 0.6rem;
+        }
+        .catalog-cat-title {
+          font-size: 0.85rem;
+          font-weight: 600;
+          color: #0B1320;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          margin: 0;
+        }
+        .catalog-items {
+          display: flex;
+          flex-direction: column;
+          gap: 0.35rem;
+        }
+        .catalog-item {
+          background: #F7F8FA;
+          border: 1px solid transparent;
+          border-radius: 10px;
+          padding: 0.75rem 1rem;
+          display: flex;
+          align-items: center;
+          gap: 0.85rem;
+          cursor: pointer;
+          transition: all 0.15s;
+          text-align: left;
+          width: 100%;
+        }
+        .catalog-item:hover {
+          background: #FEFBF2;
+          border-color: rgba(212, 175, 55, 0.3);
+        }
+        .catalog-icon {
+          font-size: 1.4rem;
+          flex-shrink: 0;
+        }
+        .catalog-text {
+          flex: 1;
+          min-width: 0;
+        }
+        .catalog-label {
+          font-weight: 500;
+          color: #0B1320;
+          font-size: 0.92rem;
+          margin-bottom: 0.1rem;
+        }
+        .catalog-description {
+          font-size: 0.8rem;
+          color: #687085;
+        }
+        .catalog-hint {
+          font-size: 0.75rem;
+          color: #9a7f2a;
+          margin-top: 0.2rem;
+        }
+        .catalog-pct {
+          background: rgba(212, 175, 55, 0.15);
+          color: #9a7f2a;
+          font-weight: 600;
+          font-size: 0.8rem;
+          padding: 0.25rem 0.55rem;
+          border-radius: 6px;
+          flex-shrink: 0;
+        }
+
+        /* ============ MODE SPLIT (Prix d'achat Maroc) ============ */
+        .mode-toggle {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 0.35rem;
+        }
+        @media (max-width: 640px) {
+          .mode-toggle {
+            grid-template-columns: repeat(2, 1fr);
+          }
+        }
+        .mode-toggle .toggle-btn {
+          font-size: 0.78rem;
+          padding: 0.6rem 0.4rem;
+          text-align: center;
+        }
+
+        .split-banner {
+          background: #FEFBF2;
+          border: 1px solid rgba(212, 175, 55, 0.3);
+          border-radius: 10px;
+          padding: 0.75rem 1rem;
+          font-size: 0.85rem;
+          color: #687085;
+          line-height: 1.5;
+        }
+        .split-banner strong {
+          color: #9a7f2a;
+        }
+
+        .field-hint {
+          display: block;
+          margin-top: 0.25rem;
+          font-size: 0.75rem;
+          color: #687085;
+          font-style: italic;
+        }
+
+        .split-preview {
+          display: flex;
+          flex-direction: column;
+          gap: 0.35rem;
+        }
+        .split-line {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          font-size: 0.85rem;
+        }
+        .split-line.cash-line {
+          color: #15803d;
+        }
+        .split-line.split-total {
+          padding-top: 0.5rem;
+          border-top: 1px dashed rgba(212, 175, 55, 0.4);
+          margin-top: 0.25rem;
+        }
+        .split-line.split-total strong {
+          color: #9a7f2a;
+          font-size: 1.05rem;
+        }
+
+        /* Sous-lignes dans la liste (prix d'achat en mode split) */
+        .split-sublines {
+          display: flex;
+          flex-direction: column;
+          gap: 0.2rem;
+          margin-top: 0.5rem;
+          padding: 0.5rem 0.75rem;
+          background: #FAFBFC;
+          border-radius: 6px;
+          border-left: 2px solid #D4AF37;
+        }
+        .subline {
+          display: flex;
+          justify-content: space-between;
+          font-size: 0.8rem;
+          color: #687085;
+        }
+        .subline-cash {
+          color: #15803d;
+        }
+        .subline-label {
+          flex: 1;
+        }
+        .subline-value {
+          font-weight: 500;
+        }
+
+        /* Tag CASH */
+        .cash-tag {
+          display: inline-block;
+          background: rgba(34, 197, 94, 0.12);
+          color: #15803d;
+          font-size: 0.68rem;
+          font-weight: 700;
+          padding: 0.15rem 0.45rem;
+          border-radius: 4px;
+          letter-spacing: 0.05em;
+        }
+
+        /* Sélecteur de base officielle / réelle */
+        .base-ref-selector {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 0.75rem;
+          background: #FEFBF2;
+          border: 1px solid rgba(212, 175, 55, 0.25);
+          border-radius: 10px;
+          padding: 0.75rem 1rem;
+        }
+        .base-ref-label {
+          font-size: 0.82rem;
+          color: #687085;
+          font-weight: 500;
+        }
+        .base-ref-option {
+          display: flex;
+          align-items: center;
+          gap: 0.4rem;
+          font-size: 0.85rem;
+          color: #0B1320;
+          cursor: pointer;
+        }
+        .base-ref-option input[type="radio"] {
+          margin: 0;
+          cursor: pointer;
+          accent-color: #D4AF37;
+        }
+        .base-ref-option strong {
+          color: #9a7f2a;
+        }
+        .base-ref-indicator {
+          color: #9a7f2a;
+          font-weight: 500;
         }
 
         .detail-highlight {
