@@ -1038,9 +1038,9 @@ export default function ProjectDetail() {
             </div>
             <div className="total-box">
               <span className="total-label">Budget total estimé</span>
-              <span className="total-amount">{formatAmount(grandTotal, project.currency)}</span>
-              {project.currency !== "EUR" && (
-                <span className="total-eur">≈ {Number(toEUR(grandTotal, project.currency)).toLocaleString("fr-FR")} €</span>
+              <span className="total-amount">{formatAmount(targetBudget, project.currency)}</span>
+              {project.currency !== "EUR" && targetBudget > 0 && (
+                <span className="total-eur">≈ {Number(toEUR(targetBudget, project.currency)).toLocaleString("fr-FR")} €</span>
               )}
             </div>
           </div>
