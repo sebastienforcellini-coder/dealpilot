@@ -935,7 +935,7 @@ export default function ProjectDetail() {
     { id: "apercu", label: "Aperçu" },
     { id: "budget", label: "Budget & Coûts" },
     { id: "contacts", label: "Contacts" },
-    { id: "chronologie", label: "Chronologie" },
+    // { id: "chronologie", label: "Chronologie" }, // TODO Sprint 3 : réactiver quand la feature sera développée
     { id: "documents", label: "Documents" },
   ];
 
