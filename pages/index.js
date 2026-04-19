@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import Head from "next/head";
 import { useRouter } from "next/router";
+import AppHeader from "../components/AppHeader";
 
 export default function Home() {
   const router = useRouter();
@@ -194,51 +195,8 @@ export default function Home() {
       </Head>
 
       <div className="app">
-        {/* HEADER SOMBRE */}
-        <header className="header">
-          <div className="header-inner">
-            <div className="brand">
-              <img src="/logo-horizontal.png" alt="DealPilot" className="logo" />
-            </div>
-            <div className="header-actions">
-              <div className="notif-wrapper">
-                <button
-                  className="icon-btn"
-                  aria-label="Notifications"
-                  onClick={() => setShowNotifs(!showNotifs)}
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-                    <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-                  </svg>
-                </button>
-                {showNotifs && (
-                  <>
-                    <div className="notif-backdrop" onClick={() => setShowNotifs(false)} />
-                    <div className="notif-dropdown">
-                      <div className="notif-head">
-                        <h3>Notifications</h3>
-                      </div>
-                      <div className="notif-empty">
-                        <div className="notif-empty-icon">
-                          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                            <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-                            <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-                          </svg>
-                        </div>
-                        <p className="notif-empty-title">Aucune notification pour le moment</p>
-                        <p className="notif-empty-sub">
-                          Vous serez notifié ici des échéances à venir, mises à jour de documents et étapes clés de vos projets.
-                        </p>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-              <div className="avatar">S</div>
-            </div>
-          </div>
-        </header>
+        {/* HEADER PARTAGÉ */}
+        <AppHeader />
 
         {/* MAIN - FOND CLAIR */}
         <main className="main">

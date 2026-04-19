@@ -18,7 +18,19 @@ export default async function handler(req, res) {
         return res.status(404).json({ success: false, error: "Projet introuvable" });
       }
 
-      const contacts = await sql`SELECT * FROM contacts WHERE project_id = ${projectId} ORDER BY type, name`;
+      const contacts = await sql`
+        SELECT
+          c.*,
+          pc.id AS association_id,
+          pc.project_role,
+          pc.commission_percentage,
+          pc.commission_amount,
+          pc.notes AS project_notes
+        FROM contacts c
+        INNER JOIN project_contacts pc ON pc.contact_id = c.id
+        WHERE pc.project_id = ${projectId}
+        ORDER BY c.type, c.name
+      `;
       const costs = await sql`SELECT * FROM costs WHERE project_id = ${projectId} ORDER BY category, id`;
       const works = await sql`SELECT * FROM works WHERE project_id = ${projectId} ORDER BY category, id`;
       const timeline = await sql`SELECT * FROM timeline_events WHERE project_id = ${projectId} ORDER BY event_date ASC`;

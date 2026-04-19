@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import Head from "next/head";
 import Link from "next/link";
+import AppHeader from "../../components/AppHeader";
 
 export default function ProjectDetail() {
   const router = useRouter();
@@ -33,6 +34,46 @@ export default function ProjectDetail() {
     title_date: "",
     conservation_office: "",
     land_notes: "",
+  });
+
+  // --- CONTACTS ---
+  const [showContactForm, setShowContactForm] = useState(false);
+  const [contactFormMode, setContactFormMode] = useState("new"); // "new" (créer) ou "pick" (choisir existant)
+  const [editingContactId, setEditingContactId] = useState(null); // édite les données du carnet
+  const [editingAssociationId, setEditingAssociationId] = useState(null); // édite l'association projet (commission)
+  const [contactUnlinkId, setContactUnlinkId] = useState(null); // délier du projet
+  const [contactDeleteId, setContactDeleteId] = useState(null); // supprimer du carnet
+  const [contactMenuOpenId, setContactMenuOpenId] = useState(null);
+  const [availableContacts, setAvailableContacts] = useState([]); // carnet filtré (pas encore associés)
+  const [pickContactId, setPickContactId] = useState(""); // contact choisi dans le carnet
+
+  const [contactData, setContactData] = useState({
+    type: "agent",
+    name: "",
+    company: "",
+    role: "",
+    email: "",
+    phone: "",
+    address: "",
+    iban: "",
+    website: "",
+    notes: "",
+    // Champs projet (commission pour CE projet)
+    commission_mode: "percentage",
+    commission_percentage: "",
+    commission_amount: "",
+    project_role: "",
+    project_notes: "",
+  });
+
+  // --- INTERACTIONS ---
+  const [showInteractionForm, setShowInteractionForm] = useState(null);
+  const [expandedContactId, setExpandedContactId] = useState(null);
+  const [interactionData, setInteractionData] = useState({
+    type: "appel",
+    subject: "",
+    notes: "",
+    interaction_date: new Date().toISOString().substring(0, 10),
   });
 
   useEffect(() => {
@@ -166,6 +207,332 @@ export default function ProjectDetail() {
     }
   };
 
+  // --- CONTACTS : reset, open, submit, delete ---
+  const resetContactForm = () => {
+    setContactData({
+      type: "agent",
+      name: "",
+      company: "",
+      role: "",
+      email: "",
+      phone: "",
+      address: "",
+      iban: "",
+      website: "",
+      notes: "",
+      commission_mode: "percentage",
+      commission_percentage: "",
+      commission_amount: "",
+      project_role: "",
+      project_notes: "",
+    });
+    setEditingContactId(null);
+    setEditingAssociationId(null);
+    setShowContactForm(false);
+    setContactFormMode("new");
+    setPickContactId("");
+  };
+
+  // Ouvrir le formulaire en mode "nouveau contact"
+  const openNewContactForm = async () => {
+    resetContactForm();
+    setContactFormMode("new");
+    setShowContactForm(true);
+    // Charger le carnet global pour permettre de basculer vers "choisir existant"
+    await fetchAvailableContacts();
+  };
+
+  // Ouvrir le formulaire en mode "choisir existant"
+  const openPickContactForm = async () => {
+    resetContactForm();
+    setContactFormMode("pick");
+    setShowContactForm(true);
+    await fetchAvailableContacts();
+  };
+
+  // Récupérer les contacts du carnet pas encore associés à ce projet
+  const fetchAvailableContacts = async () => {
+    try {
+      const res = await fetch(`/api/contacts?exclude_project=${id}`);
+      const json = await res.json();
+      if (json.success) setAvailableContacts(json.contacts || []);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Ouvrir en mode "éditer le contact" (données du carnet global)
+  const openEditContact = (contact) => {
+    setContactData({
+      type: contact.type || "agent",
+      name: contact.name || "",
+      company: contact.company || "",
+      role: contact.role || "",
+      email: contact.email || "",
+      phone: contact.phone || "",
+      address: contact.address || "",
+      iban: contact.iban || "",
+      website: contact.website || "",
+      notes: contact.notes || "",
+      // ces champs ne sont pas utilisés en mode édition carnet
+      commission_mode: "percentage",
+      commission_percentage: "",
+      commission_amount: "",
+      project_role: "",
+      project_notes: "",
+    });
+    setEditingContactId(contact.id);
+    setEditingAssociationId(null);
+    setContactFormMode("edit");
+    setShowContactForm(true);
+    setContactMenuOpenId(null);
+  };
+
+  // Ouvrir en mode "éditer l'association" (commission pour CE projet)
+  const openEditAssociation = (contact) => {
+    setContactData({
+      ...contactData,
+      type: contact.type,
+      name: contact.name,
+      commission_mode: contact.commission_amount ? "amount" : "percentage",
+      commission_percentage: contact.commission_percentage || "",
+      commission_amount: contact.commission_amount || "",
+      project_role: contact.project_role || "",
+      project_notes: contact.project_notes || "",
+    });
+    setEditingAssociationId(contact.association_id);
+    setEditingContactId(null);
+    setContactFormMode("assoc");
+    setShowContactForm(true);
+    setContactMenuOpenId(null);
+  };
+
+  const handleContactSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      // Mode "edit" : on met à jour seulement le contact du carnet
+      if (contactFormMode === "edit" && editingContactId) {
+        const res = await fetch(`/api/contacts/${editingContactId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: contactData.type,
+            name: contactData.name,
+            company: contactData.company,
+            role: contactData.role,
+            email: contactData.email,
+            phone: contactData.phone,
+            address: contactData.address,
+            iban: contactData.iban,
+            website: contactData.website,
+            notes: contactData.notes,
+          }),
+        });
+        const json = await res.json();
+        if (json.success) {
+          resetContactForm();
+          fetchProject();
+        }
+        return;
+      }
+
+      // Mode "assoc" : on met à jour seulement l'association projet (commission)
+      if (contactFormMode === "assoc" && editingAssociationId) {
+        const res = await fetch(`/api/project-contacts?association_id=${editingAssociationId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            project_role: contactData.project_role,
+            commission_percentage:
+              contactData.commission_mode === "percentage" ? contactData.commission_percentage : null,
+            commission_amount:
+              contactData.commission_mode === "amount" ? contactData.commission_amount : null,
+            notes: contactData.project_notes,
+          }),
+        });
+        const json = await res.json();
+        if (json.success) {
+          resetContactForm();
+          fetchProject();
+        }
+        return;
+      }
+
+      // Mode "pick" : associer un contact existant du carnet
+      if (contactFormMode === "pick") {
+        if (!pickContactId) {
+          alert("Sélectionnez un contact dans le carnet");
+          return;
+        }
+        const res = await fetch("/api/project-contacts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            project_id: Number(id),
+            contact_id: Number(pickContactId),
+            project_role: contactData.project_role,
+            commission_percentage:
+              contactData.commission_mode === "percentage" ? contactData.commission_percentage : null,
+            commission_amount:
+              contactData.commission_mode === "amount" ? contactData.commission_amount : null,
+            notes: contactData.project_notes,
+          }),
+        });
+        const json = await res.json();
+        if (json.success) {
+          resetContactForm();
+          fetchProject();
+        } else {
+          alert("Erreur : " + (json.error || "inconnue"));
+        }
+        return;
+      }
+
+      // Mode "new" : créer un nouveau contact ET l'associer au projet
+      const res = await fetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: contactData.type,
+          name: contactData.name,
+          company: contactData.company,
+          role: contactData.role,
+          email: contactData.email,
+          phone: contactData.phone,
+          address: contactData.address,
+          iban: contactData.iban,
+          website: contactData.website,
+          notes: contactData.notes,
+          // Liaison automatique avec le projet courant
+          project_id: Number(id),
+          project_role: contactData.project_role,
+          commission_percentage:
+            contactData.commission_mode === "percentage" ? contactData.commission_percentage : null,
+          commission_amount:
+            contactData.commission_mode === "amount" ? contactData.commission_amount : null,
+          project_notes: contactData.project_notes,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        resetContactForm();
+        fetchProject();
+      } else {
+        alert("Erreur : " + (json.error || "inconnue"));
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Erreur réseau");
+    }
+  };
+
+  // Délier un contact du projet (garde dans le carnet)
+  const unlinkContact = async (associationId) => {
+    try {
+      const res = await fetch(`/api/project-contacts?association_id=${associationId}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (json.success) {
+        setContactUnlinkId(null);
+        setContactMenuOpenId(null);
+        fetchProject();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Supprimer définitivement du carnet (+ toutes associations)
+  const deleteContact = async (contactId) => {
+    try {
+      const res = await fetch(`/api/contacts/${contactId}`, { method: "DELETE" });
+      const json = await res.json();
+      if (json.success) {
+        setContactDeleteId(null);
+        setContactMenuOpenId(null);
+        fetchProject();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // --- INTERACTIONS : add, delete ---
+  const openInteractionForm = (contactId) => {
+    setInteractionData({
+      type: "appel",
+      subject: "",
+      notes: "",
+      interaction_date: new Date().toISOString().substring(0, 10),
+    });
+    setShowInteractionForm(contactId);
+  };
+
+  const handleInteractionSubmit = async (e, contactId) => {
+    e.preventDefault();
+    try {
+      const res = await fetch("/api/interactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contact_id: contactId,
+          interaction_date: interactionData.interaction_date,
+          type: interactionData.type,
+          subject: interactionData.subject,
+          notes: interactionData.notes,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setShowInteractionForm(null);
+        fetchProject();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const deleteInteraction = async (interactionId) => {
+    if (!confirm("Supprimer cette interaction ?")) return;
+    try {
+      await fetch(`/api/interactions?id=${interactionId}`, { method: "DELETE" });
+      fetchProject();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Labels en français
+  const contactTypeLabels = {
+    agent: "Agent immobilier",
+    notaire: "Notaire",
+    architecte: "Architecte",
+    banque: "Banque",
+    courtier: "Courtier",
+    entreprise: "Entreprise / Artisan",
+    autre: "Autre",
+  };
+
+  const contactTypeIcons = {
+    agent: "🏘️",
+    notaire: "⚖️",
+    architecte: "📐",
+    banque: "🏦",
+    courtier: "💼",
+    entreprise: "🔨",
+    autre: "👤",
+  };
+
+  const interactionTypeLabels = {
+    appel: "📞 Appel",
+    email: "📧 Email",
+    rdv: "🤝 Rendez-vous",
+    visite: "🏠 Visite",
+    sms: "💬 SMS / WhatsApp",
+    autre: "📝 Autre",
+  };
+
   const tabs = [
     { id: "apercu", label: "Aperçu" },
     { id: "budget", label: "Budget & Coûts" },
@@ -218,36 +585,8 @@ export default function ProjectDetail() {
       </Head>
 
       <div className="app">
-        {/* HEADER */}
-        <header className="header">
-          <div className="header-inner">
-            <Link href="/" className="brand">
-              <img src="/logo-horizontal.png" alt="DealPilot" className="logo" />
-            </Link>
-            <div className="header-actions">
-              <div className="notif-wrapper">
-                <button className="icon-btn" onClick={() => setShowNotifs(!showNotifs)}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-                    <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-                  </svg>
-                </button>
-                {showNotifs && (
-                  <>
-                    <div className="notif-backdrop" onClick={() => setShowNotifs(false)} />
-                    <div className="notif-dropdown">
-                      <div className="notif-head"><h3>Notifications</h3></div>
-                      <div className="notif-empty">
-                        <p className="notif-empty-title">Aucune notification pour le moment</p>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-              <div className="avatar">S</div>
-            </div>
-          </div>
-        </header>
+        {/* HEADER PARTAGÉ */}
+        <AppHeader />
 
         {/* MAIN */}
         <main className="main">
@@ -436,14 +775,278 @@ export default function ProjectDetail() {
             )}
 
             {activeTab === "contacts" && (
-              <div className="placeholder-card">
-                <h3>Contacts du projet</h3>
-                <p>Notaire, agent immobilier, architecte, banque, courtier, entreprises…</p>
-                <p className="coming-soon">⏳ CRM complet avec historique des échanges (étape 3)</p>
-                <div className="quick-summary">
-                  <div className="quick-row"><span>Nombre de contacts</span><strong>{contacts.length}</strong></div>
-                  <div className="quick-row"><span>Interactions enregistrées</span><strong>{interactions.length}</strong></div>
+              <div className="contacts-section">
+                {/* Header avec boutons ajouter */}
+                <div className="contacts-header">
+                  <div>
+                    <h3 className="section-title">Contacts du projet</h3>
+                    <p className="section-subtitle">
+                      {contacts.length === 0
+                        ? "Aucun contact associé pour le moment"
+                        : `${contacts.length} contact${contacts.length > 1 ? "s" : ""} associé${contacts.length > 1 ? "s" : ""} à ce projet`}
+                    </p>
+                  </div>
+                  <div className="contacts-header-actions">
+                    <button className="btn-outline" onClick={openPickContactForm}>
+                      📇 Choisir dans le carnet
+                    </button>
+                    <button className="btn-primary" onClick={openNewContactForm}>
+                      + Nouveau contact
+                    </button>
+                  </div>
                 </div>
+
+                {/* Liste des contacts groupés par type */}
+                {contacts.length === 0 ? (
+                  <div className="empty-state">
+                    <div className="empty-icon-big">📇</div>
+                    <h4>Aucun contact associé</h4>
+                    <p>Créez un nouveau contact ou choisissez-en un dans votre carnet d'adresses global (partagé entre tous vos projets).</p>
+                    <div style={{ display: "flex", gap: "0.75rem", justifyContent: "center", flexWrap: "wrap" }}>
+                      <button className="btn-outline" onClick={openPickContactForm}>
+                        📇 Choisir dans le carnet
+                      </button>
+                      <button className="btn-primary" onClick={openNewContactForm}>
+                        + Créer un nouveau contact
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="contacts-grid">
+                    {contacts.map((c) => {
+                      const contactInteractions = interactions.filter((i) => i.contact_id === c.id);
+                      const isExpanded = expandedContactId === c.id;
+                      const commissionLabel = c.commission_percentage
+                        ? `${c.commission_percentage}%`
+                        : c.commission_amount
+                        ? formatAmount(c.commission_amount, project.currency)
+                        : null;
+
+                      return (
+                        <div key={c.id} className="contact-card">
+                          <div className="contact-top">
+                            <div className="contact-avatar">{contactTypeIcons[c.type] || "👤"}</div>
+                            <div className="contact-info">
+                              <span className="contact-type-badge">{contactTypeLabels[c.type] || c.type}</span>
+                              <h4 className="contact-name">{c.name}</h4>
+                              {(c.company || c.project_role || c.role) && (
+                                <p className="contact-role">
+                                  {c.project_role || c.role}
+                                  {(c.project_role || c.role) && c.company ? " · " : ""}
+                                  {c.company}
+                                </p>
+                              )}
+                            </div>
+                            <div className="contact-menu-wrapper">
+                              <button
+                                className="menu-trigger"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setContactMenuOpenId(contactMenuOpenId === c.id ? null : c.id);
+                                }}
+                                aria-label="Options"
+                              >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                                  <circle cx="12" cy="5" r="2" />
+                                  <circle cx="12" cy="12" r="2" />
+                                  <circle cx="12" cy="19" r="2" />
+                                </svg>
+                              </button>
+                              {contactMenuOpenId === c.id && (
+                                <>
+                                  <div className="menu-backdrop" onClick={() => setContactMenuOpenId(null)} />
+                                  <div className="menu-dropdown">
+                                    <button className="menu-item" onClick={() => openEditContact(c)}>
+                                      ✏️ Modifier les infos
+                                    </button>
+                                    <button className="menu-item" onClick={() => openEditAssociation(c)}>
+                                      💰 Modifier commission
+                                    </button>
+                                    <button
+                                      className="menu-item"
+                                      onClick={() => {
+                                        setContactUnlinkId(c.association_id);
+                                        setContactMenuOpenId(null);
+                                      }}
+                                    >
+                                      🔗 Retirer du projet
+                                    </button>
+                                    <button
+                                      className="menu-item menu-item-danger"
+                                      onClick={() => {
+                                        setContactDeleteId(c.id);
+                                        setContactMenuOpenId(null);
+                                      }}
+                                    >
+                                      🗑️ Supprimer du carnet
+                                    </button>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="contact-details">
+                            {c.email && (
+                              <div className="detail-row">
+                                <span className="detail-label">Email</span>
+                                <a href={`mailto:${c.email}`} className="detail-value detail-link">{c.email}</a>
+                              </div>
+                            )}
+                            {c.phone && (
+                              <div className="detail-row">
+                                <span className="detail-label">Téléphone</span>
+                                <a href={`tel:${c.phone}`} className="detail-value detail-link">{c.phone}</a>
+                              </div>
+                            )}
+                            {c.address && (
+                              <div className="detail-row">
+                                <span className="detail-label">Adresse</span>
+                                <span className="detail-value">{c.address}</span>
+                              </div>
+                            )}
+                            {commissionLabel && (
+                              <div className="detail-row">
+                                <span className="detail-label">Commission</span>
+                                <span className="detail-value detail-highlight">{commissionLabel}</span>
+                              </div>
+                            )}
+                            {c.iban && (
+                              <div className="detail-row">
+                                <span className="detail-label">IBAN / RIB</span>
+                                <span className="detail-value detail-mono">{c.iban}</span>
+                              </div>
+                            )}
+                            {c.website && (
+                              <div className="detail-row">
+                                <span className="detail-label">Site web</span>
+                                <a href={c.website.startsWith("http") ? c.website : `https://${c.website}`} target="_blank" rel="noreferrer" className="detail-value detail-link">{c.website}</a>
+                              </div>
+                            )}
+                            {c.notes && (
+                              <div className="contact-notes">
+                                <p>{c.notes}</p>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Bouton pour déplier l'historique */}
+                          <button
+                            className="toggle-interactions"
+                            onClick={() => setExpandedContactId(isExpanded ? null : c.id)}
+                          >
+                            {isExpanded ? "▼" : "▶"} Historique des échanges
+                            {contactInteractions.length > 0 && (
+                              <span className="interactions-count">{contactInteractions.length}</span>
+                            )}
+                          </button>
+
+                          {isExpanded && (
+                            <div className="interactions-section">
+                              <div className="interactions-header">
+                                <button
+                                  className="btn-mini"
+                                  onClick={() => openInteractionForm(c.id)}
+                                >
+                                  + Ajouter un échange
+                                </button>
+                              </div>
+
+                              {/* Formulaire d'ajout d'interaction (inline) */}
+                              {showInteractionForm === c.id && (
+                                <form
+                                  className="interaction-form"
+                                  onSubmit={(e) => handleInteractionSubmit(e, c.id)}
+                                >
+                                  <div className="row">
+                                    <label>
+                                      <span>Type</span>
+                                      <select
+                                        value={interactionData.type}
+                                        onChange={(e) => setInteractionData({ ...interactionData, type: e.target.value })}
+                                      >
+                                        <option value="appel">📞 Appel</option>
+                                        <option value="email">📧 Email</option>
+                                        <option value="rdv">🤝 Rendez-vous</option>
+                                        <option value="visite">🏠 Visite</option>
+                                        <option value="sms">💬 SMS / WhatsApp</option>
+                                        <option value="autre">📝 Autre</option>
+                                      </select>
+                                    </label>
+                                    <label>
+                                      <span>Date</span>
+                                      <input
+                                        type="date"
+                                        value={interactionData.interaction_date}
+                                        onChange={(e) => setInteractionData({ ...interactionData, interaction_date: e.target.value })}
+                                      />
+                                    </label>
+                                  </div>
+                                  <label>
+                                    <span>Sujet</span>
+                                    <input
+                                      type="text"
+                                      value={interactionData.subject}
+                                      onChange={(e) => setInteractionData({ ...interactionData, subject: e.target.value })}
+                                      placeholder="Ex: Visite du bien, discussion tarifs..."
+                                    />
+                                  </label>
+                                  <label>
+                                    <span>Notes</span>
+                                    <textarea
+                                      rows="2"
+                                      value={interactionData.notes}
+                                      onChange={(e) => setInteractionData({ ...interactionData, notes: e.target.value })}
+                                      placeholder="Détails, points abordés, décisions prises..."
+                                    />
+                                  </label>
+                                  <div className="interaction-form-actions">
+                                    <button type="button" className="btn-ghost btn-mini" onClick={() => setShowInteractionForm(null)}>
+                                      Annuler
+                                    </button>
+                                    <button type="submit" className="btn-primary btn-mini">
+                                      Enregistrer
+                                    </button>
+                                  </div>
+                                </form>
+                              )}
+
+                              {/* Liste des interactions */}
+                              {contactInteractions.length === 0 ? (
+                                <p className="empty-interactions">Aucun échange enregistré</p>
+                              ) : (
+                                <ul className="interactions-list">
+                                  {contactInteractions.map((inter) => (
+                                    <li key={inter.id} className="interaction-item">
+                                      <div className="interaction-header">
+                                        <span className="interaction-type">
+                                          {interactionTypeLabels[inter.type] || inter.type}
+                                        </span>
+                                        <span className="interaction-date">
+                                          {new Date(inter.interaction_date).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })}
+                                        </span>
+                                        <button
+                                          className="interaction-delete"
+                                          onClick={() => deleteInteraction(inter.id)}
+                                          aria-label="Supprimer"
+                                          title="Supprimer cet échange"
+                                        >
+                                          ×
+                                        </button>
+                                      </div>
+                                      {inter.subject && <div className="interaction-subject">{inter.subject}</div>}
+                                      {inter.notes && <div className="interaction-notes">{inter.notes}</div>}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
@@ -696,6 +1299,316 @@ export default function ProjectDetail() {
                   Annuler
                 </button>
                 <button type="button" className="btn-danger" onClick={handleDelete}>
+                  Supprimer définitivement
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL CONTACT : NEW / PICK / EDIT / ASSOC */}
+        {showContactForm && (
+          <div className="modal-overlay" onClick={resetContactForm}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h2>
+                  {contactFormMode === "new" && "Nouveau contact"}
+                  {contactFormMode === "pick" && "Choisir dans le carnet"}
+                  {contactFormMode === "edit" && "Modifier le contact"}
+                  {contactFormMode === "assoc" && "Modifier la commission"}
+                </h2>
+                <button className="close-btn" onClick={resetContactForm}>×</button>
+              </div>
+
+              {/* Bandeau d'info pour expliquer le contexte */}
+              {contactFormMode === "new" && (
+                <div className="info-banner">
+                  Ce contact sera ajouté à votre carnet d'adresses global (réutilisable sur tous vos projets) et automatiquement associé à ce projet.
+                  <button type="button" className="link-btn" onClick={openPickContactForm}>
+                    Choisir un contact existant ↗
+                  </button>
+                </div>
+              )}
+              {contactFormMode === "edit" && (
+                <div className="info-banner">
+                  Vous modifiez les informations du <strong>carnet global</strong>. Ces changements s'appliqueront à tous les projets liés à ce contact.
+                </div>
+              )}
+
+              <form onSubmit={handleContactSubmit} className="modal-form">
+
+                {/* Mode PICK : sélectionner un contact du carnet */}
+                {contactFormMode === "pick" && (
+                  <>
+                    <label>
+                      <span>Contact à associer *</span>
+                      <select
+                        required
+                        value={pickContactId}
+                        onChange={(e) => setPickContactId(e.target.value)}
+                      >
+                        <option value="">— Choisir un contact —</option>
+                        {availableContacts.length === 0 ? (
+                          <option disabled>Votre carnet est vide ou tous déjà associés</option>
+                        ) : (
+                          availableContacts.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {contactTypeIcons[c.type] || "👤"} {contactTypeLabels[c.type]} · {c.name}
+                              {c.company ? ` (${c.company})` : ""}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    </label>
+                    <button type="button" className="link-btn" onClick={openNewContactForm}>
+                      Plutôt créer un nouveau contact ↗
+                    </button>
+                  </>
+                )}
+
+                {/* Champs contact (pour NEW et EDIT) */}
+                {(contactFormMode === "new" || contactFormMode === "edit") && (
+                  <>
+                    <div className="row">
+                      <label>
+                        <span>Type de contact *</span>
+                        <select
+                          required
+                          value={contactData.type}
+                          onChange={(e) => setContactData({ ...contactData, type: e.target.value })}
+                        >
+                          <option value="agent">🏘️ Agent immobilier</option>
+                          <option value="notaire">⚖️ Notaire</option>
+                          <option value="architecte">📐 Architecte</option>
+                          <option value="banque">🏦 Banque</option>
+                          <option value="courtier">💼 Courtier</option>
+                          <option value="entreprise">🔨 Entreprise / Artisan</option>
+                          <option value="autre">👤 Autre</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>Nom / Prénom *</span>
+                        <input
+                          type="text"
+                          required
+                          value={contactData.name}
+                          onChange={(e) => setContactData({ ...contactData, name: e.target.value })}
+                          placeholder="Sophie Martin"
+                        />
+                      </label>
+                    </div>
+
+                    <div className="row">
+                      <label>
+                        <span>Société / Cabinet / Étude</span>
+                        <input
+                          type="text"
+                          value={contactData.company}
+                          onChange={(e) => setContactData({ ...contactData, company: e.target.value })}
+                          placeholder="Cabinet Notaire Alaoui"
+                        />
+                      </label>
+                      <label>
+                        <span>Fonction / Rôle</span>
+                        <input
+                          type="text"
+                          value={contactData.role}
+                          onChange={(e) => setContactData({ ...contactData, role: e.target.value })}
+                          placeholder="Notaire titulaire"
+                        />
+                      </label>
+                    </div>
+
+                    <div className="row">
+                      <label>
+                        <span>Email</span>
+                        <input
+                          type="email"
+                          value={contactData.email}
+                          onChange={(e) => setContactData({ ...contactData, email: e.target.value })}
+                          placeholder="contact@exemple.com"
+                        />
+                      </label>
+                      <label>
+                        <span>Téléphone</span>
+                        <input
+                          type="tel"
+                          value={contactData.phone}
+                          onChange={(e) => setContactData({ ...contactData, phone: e.target.value })}
+                          placeholder="+212 6 12 34 56 78"
+                        />
+                      </label>
+                    </div>
+
+                    <label>
+                      <span>Adresse</span>
+                      <input
+                        type="text"
+                        value={contactData.address}
+                        onChange={(e) => setContactData({ ...contactData, address: e.target.value })}
+                        placeholder="Rue Mohammed V, Marrakech"
+                      />
+                    </label>
+
+                    <div className="row">
+                      <label>
+                        <span>IBAN / RIB</span>
+                        <input
+                          type="text"
+                          value={contactData.iban}
+                          onChange={(e) => setContactData({ ...contactData, iban: e.target.value })}
+                          placeholder="MA64 ..."
+                        />
+                      </label>
+                      <label>
+                        <span>Site web</span>
+                        <input
+                          type="text"
+                          value={contactData.website}
+                          onChange={(e) => setContactData({ ...contactData, website: e.target.value })}
+                          placeholder="www.exemple.com"
+                        />
+                      </label>
+                    </div>
+
+                    <label>
+                      <span>Notes (carnet global)</span>
+                      <textarea
+                        rows="2"
+                        value={contactData.notes}
+                        onChange={(e) => setContactData({ ...contactData, notes: e.target.value })}
+                        placeholder="Horaires, spécialités, recommandé par..."
+                      />
+                    </label>
+                  </>
+                )}
+
+                {/* Champs projet (commission, rôle projet, notes projet) pour NEW / PICK / ASSOC */}
+                {(contactFormMode === "new" || contactFormMode === "pick" || contactFormMode === "assoc") && (
+                  <>
+                    <div className="section-divider">
+                      <span>💰 Pour ce projet</span>
+                    </div>
+
+                    <label>
+                      <span>Rôle sur ce projet</span>
+                      <input
+                        type="text"
+                        value={contactData.project_role}
+                        onChange={(e) => setContactData({ ...contactData, project_role: e.target.value })}
+                        placeholder="Ex: Notaire principal, Agent vendeur..."
+                      />
+                    </label>
+
+                    <div className="commission-toggle">
+                      <button
+                        type="button"
+                        className={`toggle-btn ${contactData.commission_mode === "percentage" ? "toggle-active" : ""}`}
+                        onClick={() => setContactData({ ...contactData, commission_mode: "percentage" })}
+                      >
+                        En pourcentage (%)
+                      </button>
+                      <button
+                        type="button"
+                        className={`toggle-btn ${contactData.commission_mode === "amount" ? "toggle-active" : ""}`}
+                        onClick={() => setContactData({ ...contactData, commission_mode: "amount" })}
+                      >
+                        Montant fixe
+                      </button>
+                    </div>
+
+                    {contactData.commission_mode === "percentage" ? (
+                      <label>
+                        <span>Pourcentage</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={contactData.commission_percentage}
+                          onChange={(e) => setContactData({ ...contactData, commission_percentage: e.target.value })}
+                          placeholder="Ex: 3 (pour 3%)"
+                        />
+                      </label>
+                    ) : (
+                      <label>
+                        <span>Montant ({project.currency})</span>
+                        <input
+                          type="number"
+                          value={contactData.commission_amount}
+                          onChange={(e) => setContactData({ ...contactData, commission_amount: e.target.value })}
+                          placeholder="Ex: 15000"
+                        />
+                      </label>
+                    )}
+
+                    <label>
+                      <span>Notes spécifiques à ce projet</span>
+                      <textarea
+                        rows="2"
+                        value={contactData.project_notes}
+                        onChange={(e) => setContactData({ ...contactData, project_notes: e.target.value })}
+                        placeholder="Conditions négociées, modalités particulières..."
+                      />
+                    </label>
+                  </>
+                )}
+
+                <div className="modal-actions">
+                  <button type="button" className="btn-ghost" onClick={resetContactForm}>
+                    Annuler
+                  </button>
+                  <button type="submit" className="btn-primary">
+                    {contactFormMode === "new" && "Créer et associer"}
+                    {contactFormMode === "pick" && "Associer au projet"}
+                    {contactFormMode === "edit" && "Enregistrer les modifications"}
+                    {contactFormMode === "assoc" && "Enregistrer"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL CONFIRMATION DÉLIAISON (retirer du projet) */}
+        {contactUnlinkId && (
+          <div className="modal-overlay" onClick={() => setContactUnlinkId(null)}>
+            <div className="modal modal-small" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h2>Retirer du projet ?</h2>
+                <button className="close-btn" onClick={() => setContactUnlinkId(null)}>×</button>
+              </div>
+              <div className="modal-body-text">
+                <p>Le contact sera retiré de ce projet, mais <strong>conservé dans votre carnet d'adresses global</strong>.</p>
+                <p>Vous pourrez le ré-associer plus tard si besoin.</p>
+              </div>
+              <div className="modal-actions" style={{ padding: "1rem 1.75rem 1.75rem" }}>
+                <button type="button" className="btn-ghost" onClick={() => setContactUnlinkId(null)}>
+                  Annuler
+                </button>
+                <button type="button" className="btn-primary" onClick={() => unlinkContact(contactUnlinkId)}>
+                  Retirer du projet
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL CONFIRMATION SUPPRESSION DU CARNET */}
+        {contactDeleteId && (
+          <div className="modal-overlay" onClick={() => setContactDeleteId(null)}>
+            <div className="modal modal-small" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h2>Supprimer du carnet ?</h2>
+                <button className="close-btn" onClick={() => setContactDeleteId(null)}>×</button>
+              </div>
+              <div className="modal-body-text">
+                <p>Cette action est <strong>irréversible</strong>.</p>
+                <p>Le contact sera supprimé de votre carnet global, de <strong>tous les projets</strong> auxquels il est associé, ainsi que son historique d'échanges.</p>
+              </div>
+              <div className="modal-actions" style={{ padding: "1rem 1.75rem 1.75rem" }}>
+                <button type="button" className="btn-ghost" onClick={() => setContactDeleteId(null)}>
+                  Annuler
+                </button>
+                <button type="button" className="btn-danger" onClick={() => deleteContact(contactDeleteId)}>
                   Supprimer définitivement
                 </button>
               </div>
@@ -1089,6 +2002,519 @@ export default function ProjectDetail() {
           margin-top: 0.35rem;
           line-height: 1.5;
           white-space: pre-wrap;
+        }
+
+        /* ============ SECTION CONTACTS ============ */
+        .contacts-section {
+          display: flex;
+          flex-direction: column;
+          gap: 1.5rem;
+        }
+
+        .contacts-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 1rem;
+          flex-wrap: wrap;
+        }
+
+        .contacts-header-actions {
+          display: flex;
+          gap: 0.75rem;
+          flex-wrap: wrap;
+        }
+
+        .info-banner {
+          margin: 0 1.75rem 0.25rem;
+          padding: 0.75rem 1rem;
+          background: #FEFBF2;
+          border: 1px solid rgba(212, 175, 55, 0.25);
+          border-radius: 10px;
+          font-size: 0.85rem;
+          color: #687085;
+          line-height: 1.5;
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          justify-content: space-between;
+          flex-wrap: wrap;
+        }
+        .info-banner strong {
+          color: #0B1320;
+        }
+
+        .link-btn {
+          background: transparent;
+          border: none;
+          color: #9a7f2a;
+          font-size: 0.85rem;
+          font-weight: 500;
+          padding: 0.35rem 0.5rem;
+          cursor: pointer;
+          white-space: nowrap;
+          text-decoration: underline;
+          text-underline-offset: 3px;
+        }
+        .link-btn:hover {
+          color: #D4AF37;
+        }
+
+        .section-title {
+          font-size: 1.2rem;
+          font-weight: 600;
+          color: #0B1320;
+          margin-bottom: 0.25rem;
+        }
+
+        .section-subtitle {
+          color: #687085;
+          font-size: 0.9rem;
+        }
+
+        /* État vide */
+        .empty-state {
+          background: #FFFFFF;
+          border: 1px dashed #E6E9EF;
+          border-radius: 16px;
+          padding: 3rem 2rem;
+          text-align: center;
+        }
+        .empty-icon-big {
+          font-size: 3rem;
+          margin-bottom: 1rem;
+        }
+        .empty-state h4 {
+          color: #0B1320;
+          font-size: 1.1rem;
+          margin-bottom: 0.5rem;
+        }
+        .empty-state p {
+          color: #687085;
+          margin-bottom: 1.5rem;
+          max-width: 380px;
+          margin-left: auto;
+          margin-right: auto;
+        }
+
+        .btn-outline {
+          background: transparent;
+          border: 1.5px solid #D4AF37;
+          color: #9a7f2a;
+          padding: 0.65rem 1.25rem;
+          border-radius: 10px;
+          font-weight: 500;
+          font-size: 0.9rem;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .btn-outline:hover {
+          background: rgba(212, 175, 55, 0.08);
+          color: #9a7f2a;
+        }
+
+        /* Grille de cards contacts */
+        .contacts-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+          gap: 1.25rem;
+        }
+
+        .contact-card {
+          background: #FFFFFF;
+          border: 1px solid #EEF0F4;
+          border-radius: 14px;
+          padding: 1.25rem;
+          transition: all 0.15s;
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+          position: relative;
+        }
+        .contact-card:hover {
+          border-color: rgba(212, 175, 55, 0.3);
+          box-shadow: 0 4px 12px rgba(11, 19, 32, 0.05);
+        }
+
+        .contact-top {
+          display: flex;
+          gap: 0.85rem;
+          align-items: flex-start;
+        }
+
+        .contact-avatar {
+          width: 44px;
+          height: 44px;
+          background: rgba(212, 175, 55, 0.1);
+          border-radius: 10px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 1.3rem;
+          flex-shrink: 0;
+        }
+
+        .contact-info {
+          flex: 1;
+          min-width: 0;
+        }
+
+        .contact-type-badge {
+          display: inline-block;
+          font-size: 0.7rem;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          color: #9a7f2a;
+          background: rgba(212, 175, 55, 0.12);
+          padding: 0.2rem 0.55rem;
+          border-radius: 5px;
+          margin-bottom: 0.35rem;
+        }
+
+        .contact-name {
+          font-size: 1rem;
+          font-weight: 600;
+          color: #0B1320;
+          margin-bottom: 0.15rem;
+          word-break: break-word;
+        }
+
+        .contact-role {
+          font-size: 0.82rem;
+          color: #687085;
+          line-height: 1.35;
+        }
+
+        .contact-menu-wrapper {
+          position: relative;
+          flex-shrink: 0;
+        }
+
+        .contact-details {
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
+          padding-top: 0.75rem;
+          border-top: 1px solid #F3F4F6;
+        }
+
+        .detail-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: baseline;
+          gap: 0.75rem;
+          font-size: 0.85rem;
+        }
+
+        .detail-label {
+          color: #687085;
+          font-weight: 500;
+          flex-shrink: 0;
+        }
+
+        .detail-value {
+          color: #0B1320;
+          text-align: right;
+          word-break: break-word;
+        }
+
+        .detail-link {
+          color: #9a7f2a;
+          text-decoration: none;
+        }
+        .detail-link:hover {
+          text-decoration: underline;
+        }
+
+        .detail-highlight {
+          color: #D4AF37;
+          font-weight: 600;
+          background: rgba(212, 175, 55, 0.1);
+          padding: 0.15rem 0.45rem;
+          border-radius: 4px;
+        }
+
+        .detail-mono {
+          font-family: "SF Mono", Menlo, monospace;
+          font-size: 0.78rem;
+        }
+
+        .contact-notes {
+          padding-top: 0.5rem;
+          border-top: 1px dashed #F3F4F6;
+          margin-top: 0.25rem;
+        }
+        .contact-notes p {
+          font-size: 0.82rem;
+          color: #687085;
+          font-style: italic;
+          line-height: 1.45;
+          white-space: pre-wrap;
+        }
+
+        /* Toggle historique des échanges */
+        .toggle-interactions {
+          margin-top: 0.5rem;
+          background: transparent;
+          border: none;
+          color: #687085;
+          font-size: 0.82rem;
+          font-weight: 500;
+          padding: 0.5rem 0;
+          text-align: left;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          border-top: 1px solid #F3F4F6;
+          transition: color 0.15s;
+        }
+        .toggle-interactions:hover {
+          color: #0B1320;
+        }
+        .interactions-count {
+          background: #D4AF37;
+          color: #0B1320;
+          font-size: 0.7rem;
+          font-weight: 600;
+          padding: 0.1rem 0.4rem;
+          border-radius: 10px;
+          min-width: 20px;
+          text-align: center;
+        }
+
+        .interactions-section {
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+        }
+
+        .interactions-header {
+          display: flex;
+          justify-content: flex-end;
+        }
+
+        .btn-mini {
+          padding: 0.4rem 0.85rem;
+          font-size: 0.8rem;
+          border-radius: 8px;
+        }
+
+        .interaction-form {
+          background: #F7F8FA;
+          border: 1px solid #EEF0F4;
+          border-radius: 10px;
+          padding: 1rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+        }
+
+        .interaction-form .row {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 0.75rem;
+        }
+
+        .interaction-form label {
+          display: flex;
+          flex-direction: column;
+          gap: 0.3rem;
+        }
+        .interaction-form label span {
+          font-size: 0.8rem;
+          color: #0B1320;
+          font-weight: 500;
+        }
+        .interaction-form input,
+        .interaction-form select,
+        .interaction-form textarea {
+          background: #FFFFFF;
+          border: 1px solid #E6E9EF;
+          padding: 0.5rem 0.75rem;
+          border-radius: 7px;
+          font-size: 0.85rem;
+          color: #0B1320;
+          font-family: inherit;
+        }
+        .interaction-form input:focus,
+        .interaction-form select:focus,
+        .interaction-form textarea:focus {
+          outline: none;
+          border-color: #D4AF37;
+        }
+
+        .interaction-form-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 0.5rem;
+        }
+
+        .empty-interactions {
+          color: #687085;
+          font-size: 0.85rem;
+          font-style: italic;
+          text-align: center;
+          padding: 1rem;
+        }
+
+        .interactions-list {
+          list-style: none;
+          display: flex;
+          flex-direction: column;
+          gap: 0.65rem;
+        }
+
+        .interaction-item {
+          background: #F7F8FA;
+          border-left: 3px solid #D4AF37;
+          border-radius: 6px;
+          padding: 0.6rem 0.85rem;
+          position: relative;
+        }
+
+        .interaction-header {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          margin-bottom: 0.25rem;
+        }
+
+        .interaction-type {
+          font-size: 0.78rem;
+          font-weight: 600;
+          color: #9a7f2a;
+        }
+
+        .interaction-date {
+          font-size: 0.75rem;
+          color: #687085;
+          flex: 1;
+        }
+
+        .interaction-delete {
+          background: transparent;
+          border: none;
+          color: #687085;
+          width: 20px;
+          height: 20px;
+          border-radius: 4px;
+          font-size: 1rem;
+          line-height: 1;
+          cursor: pointer;
+          transition: all 0.15s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .interaction-delete:hover {
+          background: #FEF2F2;
+          color: #DC2626;
+        }
+
+        .interaction-subject {
+          font-size: 0.85rem;
+          color: #0B1320;
+          font-weight: 500;
+          margin-bottom: 0.15rem;
+        }
+        .interaction-notes {
+          font-size: 0.8rem;
+          color: #687085;
+          line-height: 1.45;
+          white-space: pre-wrap;
+        }
+
+        /* Menu dropdown et trigger (réutilisation des styles) */
+        .menu-trigger {
+          background: transparent;
+          border: none;
+          color: #687085;
+          width: 30px;
+          height: 30px;
+          border-radius: 6px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: all 0.15s;
+        }
+        .menu-trigger:hover {
+          background: #F0F2F5;
+          color: #0B1320;
+        }
+
+        .menu-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 40;
+        }
+
+        .menu-dropdown {
+          position: absolute;
+          top: calc(100% + 4px);
+          right: 0;
+          background: #FFFFFF;
+          border: 1px solid #EEF0F4;
+          border-radius: 10px;
+          box-shadow: 0 8px 24px rgba(11, 19, 32, 0.12);
+          z-index: 50;
+          min-width: 160px;
+          overflow: hidden;
+        }
+
+        .menu-item {
+          display: block;
+          width: 100%;
+          background: transparent;
+          border: none;
+          padding: 0.7rem 1rem;
+          font-size: 0.88rem;
+          color: #0B1320;
+          text-align: left;
+          cursor: pointer;
+          transition: background 0.15s;
+        }
+        .menu-item:hover {
+          background: #F7F8FA;
+        }
+        .menu-item-danger {
+          color: #DC2626;
+        }
+        .menu-item-danger:hover {
+          background: #FEF2F2;
+        }
+
+        /* Toggle commission % vs montant */
+        .commission-toggle {
+          display: flex;
+          gap: 0.5rem;
+          background: #F7F8FA;
+          padding: 0.35rem;
+          border-radius: 10px;
+          border: 1px solid #EEF0F4;
+        }
+        .toggle-btn {
+          flex: 1;
+          background: transparent;
+          border: none;
+          padding: 0.55rem 0.75rem;
+          border-radius: 7px;
+          font-size: 0.82rem;
+          font-weight: 500;
+          color: #687085;
+          cursor: pointer;
+          transition: all 0.15s;
+        }
+        .toggle-btn:hover {
+          color: #0B1320;
+        }
+        .toggle-active {
+          background: #FFFFFF;
+          color: #0B1320;
+          font-weight: 600;
+          box-shadow: 0 1px 3px rgba(11, 19, 32, 0.08);
         }
 
         .page-head {

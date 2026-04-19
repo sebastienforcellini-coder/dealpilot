@@ -41,7 +41,7 @@ export default async function handler(req, res) {
     await sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS land_notes TEXT`;
     results.push("✅ Colonnes projects à jour");
 
-    // 2. Table contacts (notaire, agent, architecte, banque, courtier, entreprise)
+    // 2. Table contacts (CARNET D'ADRESSES GLOBAL, indépendant des projets)
     await sql`
       CREATE TABLE IF NOT EXISTS contacts (
         id SERIAL PRIMARY KEY,
@@ -59,6 +59,54 @@ export default async function handler(req, res) {
       )
     `;
     results.push("✅ Table contacts");
+
+    // Migration : on rend project_id optionnel (carnet global)
+    // + ajout des colonnes complémentaires sur le contact lui-même
+    await sql`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS iban TEXT`;
+    await sql`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS website TEXT`;
+    // Anciennes colonnes commission qui restaient sur contacts (on migre vers project_contacts)
+    // On les garde pour compatibilité mais elles ne sont plus utilisées
+    await sql`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS commission_percentage DECIMAL(5,2)`;
+    await sql`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS commission_amount DECIMAL(14,2)`;
+    // Rendre project_id nullable (les contacts du carnet global n'ont pas forcément un projet fixe)
+    try {
+      await sql`ALTER TABLE contacts ALTER COLUMN project_id DROP NOT NULL`;
+    } catch (e) {
+      // déjà nullable
+    }
+    results.push("✅ Colonnes contacts à jour");
+
+    // 2bis. Table project_contacts (LIAISON projet ↔ contact avec données spécifiques au projet)
+    await sql`
+      CREATE TABLE IF NOT EXISTS project_contacts (
+        id SERIAL PRIMARY KEY,
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+        project_role VARCHAR(255),
+        commission_percentage DECIMAL(5,2),
+        commission_amount DECIMAL(14,2),
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(project_id, contact_id)
+      )
+    `;
+    results.push("✅ Table project_contacts (liaison)");
+
+    // Migration : pour les contacts existants qui ont déjà un project_id,
+    // on crée automatiquement la liaison dans project_contacts (si pas déjà faite)
+    await sql`
+      INSERT INTO project_contacts (project_id, contact_id, commission_percentage, commission_amount)
+      SELECT
+        c.project_id,
+        c.id,
+        c.commission_percentage,
+        c.commission_amount
+      FROM contacts c
+      WHERE c.project_id IS NOT NULL
+      ON CONFLICT (project_id, contact_id) DO NOTHING
+    `;
+    results.push("✅ Migration contacts → project_contacts");
 
     // 3. Table contact_interactions (historique des échanges)
     await sql`
