@@ -524,6 +524,14 @@ export default function ProjectDetail() {
     autre: "👤",
   };
 
+  // Transforme un numéro en URL WhatsApp (wa.me accepte seulement des chiffres, sans +, ni espaces, ni symboles)
+  const toWhatsAppUrl = (phone) => {
+    if (!phone) return "";
+    // Garder uniquement les chiffres (supprime +, espaces, tirets, parenthèses, points)
+    const digits = String(phone).replace(/\D/g, "");
+    return `https://wa.me/${digits}`;
+  };
+
   const interactionTypeLabels = {
     appel: "📞 Appel",
     email: "📧 Email",
@@ -896,7 +904,15 @@ export default function ProjectDetail() {
                             {c.phone && (
                               <div className="detail-row">
                                 <span className="detail-label">Téléphone</span>
-                                <a href={`tel:${c.phone}`} className="detail-value detail-link">{c.phone}</a>
+                                <a
+                                  href={toWhatsAppUrl(c.phone)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="detail-value detail-link whatsapp-link"
+                                  title="Ouvrir dans WhatsApp"
+                                >
+                                  <span className="wa-icon" aria-hidden>💬</span> {c.phone}
+                                </a>
                               </div>
                             )}
                             {c.address && (
@@ -2225,6 +2241,20 @@ export default function ProjectDetail() {
         }
         .detail-link:hover {
           text-decoration: underline;
+        }
+
+        .whatsapp-link {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.35rem;
+          color: #25D366;
+        }
+        .whatsapp-link:hover {
+          color: #128C7E;
+          text-decoration: underline;
+        }
+        .wa-icon {
+          font-size: 0.9rem;
         }
 
         .detail-highlight {
