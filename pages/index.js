@@ -8,7 +8,6 @@ export default function Home() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [activeTab, setActiveTab] = useState("overview");
   const [showNotifs, setShowNotifs] = useState(false);
   const [editingId, setEditingId] = useState(null); // null = création, sinon = id du projet édité
   const [menuOpenId, setMenuOpenId] = useState(null); // id du projet dont le menu ⋯ est ouvert
@@ -170,14 +169,6 @@ export default function Home() {
     }
   };
 
-  const tabs = [
-    { id: "overview", label: "Aperçu" },
-    { id: "budget", label: "Budget & Coûts" },
-    { id: "timeline", label: "Chronologie" },
-    { id: "documents", label: "Documents" },
-    { id: "more", label: "Plus" },
-  ];
-
   return (
     <>
       <Head>
@@ -211,126 +202,102 @@ export default function Home() {
             </button>
           </div>
 
-          {/* Tabs */}
-          <nav className="tabs">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                className={`tab ${activeTab === tab.id ? "tab-active" : ""}`}
-                onClick={() => setActiveTab(tab.id)}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </nav>
-
           {/* Content */}
           <section className="content">
-            {activeTab === "overview" && (
-              <>
-                {loading ? (
-                  <div className="loading">Chargement...</div>
-                ) : projects.length === 0 ? (
-                  <div className="empty-card">
-                    <div className="empty-icon">
-                      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                        <polyline points="9 22 9 12 15 12 15 22" />
-                      </svg>
-                    </div>
-                    <h3>Commencez votre premier projet</h3>
-                    <p>Créez un nouveau projet immobilier pour commencer à suivre vos investissements en toute confiance.</p>
-                    <button className="btn-outline" onClick={() => setShowForm(true)}>
-                      Créer un projet
-                    </button>
-                  </div>
-                ) : (
-                  <div className="projects-grid">
-                    {projects.map((p, i) => (
-                      <div
-                        key={i}
-                        className="project-card"
+            {loading ? (
+              <div className="loading">Chargement...</div>
+            ) : projects.length === 0 ? (
+              <div className="empty-card">
+                <div className="empty-icon">
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                    <polyline points="9 22 9 12 15 12 15 22" />
+                  </svg>
+                </div>
+                <h3>Commencez votre premier projet</h3>
+                <p>Créez un nouveau projet immobilier pour commencer à suivre vos investissements en toute confiance.</p>
+                <button className="btn-outline" onClick={() => setShowForm(true)}>
+                  Créer un projet
+                </button>
+              </div>
+            ) : (
+              <div className="projects-grid">
+                {projects.map((p, i) => (
+                  <div
+                    key={i}
+                    className="project-card"
+                    onClick={(e) => {
+                      // Ne pas naviguer si on clique sur le menu ou ses enfants
+                      if (e.target.closest(".card-menu")) return;
+                      router.push(`/projet/${p.id}`);
+                    }}
+                  >
+                    <div className="card-menu">
+                      <button
+                        className="menu-trigger"
                         onClick={(e) => {
-                          // Ne pas naviguer si on clique sur le menu ou ses enfants
-                          if (e.target.closest(".card-menu")) return;
-                          router.push(`/projet/${p.id}`);
+                          e.stopPropagation();
+                          setMenuOpenId(menuOpenId === p.id ? null : p.id);
                         }}
+                        aria-label="Options"
                       >
-                        <div className="card-menu">
-                          <button
-                            className="menu-trigger"
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                          <circle cx="12" cy="5" r="2" />
+                          <circle cx="12" cy="12" r="2" />
+                          <circle cx="12" cy="19" r="2" />
+                        </svg>
+                      </button>
+                      {menuOpenId === p.id && (
+                        <>
+                          <div
+                            className="menu-backdrop"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setMenuOpenId(menuOpenId === p.id ? null : p.id);
+                              setMenuOpenId(null);
                             }}
-                            aria-label="Options"
-                          >
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                              <circle cx="12" cy="5" r="2" />
-                              <circle cx="12" cy="12" r="2" />
-                              <circle cx="12" cy="19" r="2" />
-                            </svg>
-                          </button>
-                          {menuOpenId === p.id && (
-                            <>
-                              <div
-                                className="menu-backdrop"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setMenuOpenId(null);
-                                }}
-                              />
-                              <div className="menu-dropdown" onClick={(e) => e.stopPropagation()}>
-                                <button
-                                  className="menu-item"
-                                  onClick={() => openEditForm(p)}
-                                >
-                                  ✏️ Modifier
-                                </button>
-                                <button
-                                  className="menu-item menu-item-danger"
-                                  onClick={() => {
-                                    setConfirmDeleteId(p.id);
-                                    setMenuOpenId(null);
-                                  }}
-                                >
-                                  🗑️ Supprimer
-                                </button>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                        <div className="project-header">
-                          <h3>{p.name}</h3>
-                          <span className="tag">{p.property_type || "Bien"}</span>
-                        </div>
-                        <p className="project-location">
-                          {p.city}{p.city && p.country && ", "}{p.country}
-                        </p>
-                        <div className="project-budget">
-                          <div className="budget-row">
-                            <span className="label">Budget</span>
-                            <span className="amount">{formatAmount(p.target_budget || p.budget, p.currency)}</span>
+                          />
+                          <div className="menu-dropdown" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              className="menu-item"
+                              onClick={() => openEditForm(p)}
+                            >
+                              ✏️ Modifier
+                            </button>
+                            <button
+                              className="menu-item menu-item-danger"
+                              onClick={() => {
+                                setConfirmDeleteId(p.id);
+                                setMenuOpenId(null);
+                              }}
+                            >
+                              🗑️ Supprimer
+                            </button>
                           </div>
-                          {p.currency !== "EUR" && (p.target_budget || p.budget) && (
-                            <div className="budget-row budget-eur">
-                              <span className="label-eur">≈</span>
-                              <span className="amount-eur">{Number(toEUR(p.target_budget || p.budget, p.currency)).toLocaleString("fr-FR")} €</span>
-                            </div>
-                          )}
-                        </div>
-                        {p.description && <p className="project-desc">{p.description}</p>}
+                        </>
+                      )}
+                    </div>
+                    <div className="project-header">
+                      <h3>{p.name}</h3>
+                      <span className="tag">{p.property_type || "Bien"}</span>
+                    </div>
+                    <p className="project-location">
+                      {p.city}{p.city && p.country && ", "}{p.country}
+                    </p>
+                    <div className="project-budget">
+                      <div className="budget-row">
+                        <span className="label">Budget</span>
+                        <span className="amount">{formatAmount(p.target_budget || p.budget, p.currency)}</span>
                       </div>
-                    ))}
+                      {p.currency !== "EUR" && (p.target_budget || p.budget) && (
+                        <div className="budget-row budget-eur">
+                          <span className="label-eur">≈</span>
+                          <span className="amount-eur">{Number(toEUR(p.target_budget || p.budget, p.currency)).toLocaleString("fr-FR")} €</span>
+                        </div>
+                      )}
+                    </div>
+                    {p.description && <p className="project-desc">{p.description}</p>}
                   </div>
-                )}
-              </>
-            )}
-
-            {activeTab !== "overview" && (
-              <div className="empty-card">
-                <h3>Bientôt disponible</h3>
-                <p>Cette section est en cours de construction.</p>
+                ))}
               </div>
             )}
           </section>
@@ -762,43 +729,6 @@ export default function Home() {
           color: #DC2626;
         }
 
-        /* TABS */
-        .tabs {
-          display: flex;
-          gap: 0.25rem;
-          background: #FFFFFF;
-          padding: 0.35rem;
-          border-radius: 12px;
-          margin-bottom: 2rem;
-          overflow-x: auto;
-          box-shadow: 0 1px 3px rgba(11, 19, 32, 0.04);
-          border: 1px solid #EEF0F4;
-        }
-
-        .tab {
-          flex: 1;
-          padding: 0.75rem 1rem;
-          background: transparent;
-          color: #687085;
-          border: none;
-          border-radius: 8px;
-          font-size: 0.9rem;
-          font-weight: 500;
-          transition: all 0.2s;
-          white-space: nowrap;
-          min-width: max-content;
-        }
-
-        .tab:hover {
-          color: #0B1320;
-        }
-
-        .tab-active {
-          background: #D4AF37;
-          color: #0B1320;
-          font-weight: 600;
-        }
-
         /* CONTENT */
         .content {
           margin-bottom: 3rem;
@@ -1170,9 +1100,6 @@ export default function Home() {
           }
           .row {
             grid-template-columns: 1fr;
-          }
-          .tabs {
-            flex-wrap: nowrap;
           }
           .header-inner {
             padding: 0 1rem;
