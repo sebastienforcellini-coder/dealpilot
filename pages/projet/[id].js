@@ -1735,7 +1735,7 @@ export default function ProjectDetail() {
 
         {/* MODAL ÉDITION */}
         {showEdit && (
-          <div className="modal-overlay" onClick={() => setShowEdit(false)}>
+          <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) e.currentTarget.dataset.downOnOverlay = "1"; }} onClick={(e) => { if (e.target === e.currentTarget && e.currentTarget.dataset.downOnOverlay === "1") setShowEdit(false); e.currentTarget.dataset.downOnOverlay = ""; }}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
                 <h2>Modifier le projet</h2>
@@ -1945,7 +1945,7 @@ export default function ProjectDetail() {
 
         {/* MODAL CONFIRMATION SUPPRESSION */}
         {showDeleteConfirm && (
-          <div className="modal-overlay" onClick={() => setShowDeleteConfirm(false)}>
+          <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) e.currentTarget.dataset.downOnOverlay = "1"; }} onClick={(e) => { if (e.target === e.currentTarget && e.currentTarget.dataset.downOnOverlay === "1") setShowDeleteConfirm(false); e.currentTarget.dataset.downOnOverlay = ""; }}>
             <div className="modal modal-small" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
                 <h2>Supprimer le projet ?</h2>
@@ -1969,7 +1969,7 @@ export default function ProjectDetail() {
 
         {/* MODAL CATALOGUE DES POSTES DE COÛT */}
         {costCatalogOpen && (
-          <div className="modal-overlay" onClick={() => setCostCatalogOpen(false)}>
+          <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) e.currentTarget.dataset.downOnOverlay = "1"; }} onClick={(e) => { if (e.target === e.currentTarget && e.currentTarget.dataset.downOnOverlay === "1") setCostCatalogOpen(false); e.currentTarget.dataset.downOnOverlay = ""; }}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
                 <h2>Choisir un type de coût</h2>
@@ -2017,7 +2017,7 @@ export default function ProjectDetail() {
 
         {/* MODAL FORMULAIRE COÛT */}
         {showCostForm && (
-          <div className="modal-overlay" onClick={resetCostForm}>
+          <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) e.currentTarget.dataset.downOnOverlay = "1"; }} onClick={(e) => { if (e.target === e.currentTarget && e.currentTarget.dataset.downOnOverlay === "1") resetCostForm(); e.currentTarget.dataset.downOnOverlay = ""; }}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
                 <h2>{editingCostId ? "Modifier le coût" : "Nouveau coût"}</h2>
@@ -2360,7 +2360,7 @@ export default function ProjectDetail() {
 
         {/* MODAL CONFIRMATION SUPPRESSION COÛT */}
         {costDeleteId && (
-          <div className="modal-overlay" onClick={() => setCostDeleteId(null)}>
+          <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) e.currentTarget.dataset.downOnOverlay = "1"; }} onClick={(e) => { if (e.target === e.currentTarget && e.currentTarget.dataset.downOnOverlay === "1") setCostDeleteId(null); e.currentTarget.dataset.downOnOverlay = ""; }}>
             <div className="modal modal-small" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
                 <h2>Supprimer ce coût ?</h2>
@@ -2383,7 +2383,7 @@ export default function ProjectDetail() {
 
         {/* MODAL CONTACT : NEW / PICK / EDIT / ASSOC */}
         {showContactForm && (
-          <div className="modal-overlay" onClick={resetContactForm}>
+          <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) e.currentTarget.dataset.downOnOverlay = "1"; }} onClick={(e) => { if (e.target === e.currentTarget && e.currentTarget.dataset.downOnOverlay === "1") resetContactForm(); e.currentTarget.dataset.downOnOverlay = ""; }}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
                 <h2>
@@ -2646,7 +2646,7 @@ export default function ProjectDetail() {
 
         {/* MODAL CONFIRMATION DÉLIAISON (retirer du projet) */}
         {contactUnlinkId && (
-          <div className="modal-overlay" onClick={() => setContactUnlinkId(null)}>
+          <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) e.currentTarget.dataset.downOnOverlay = "1"; }} onClick={(e) => { if (e.target === e.currentTarget && e.currentTarget.dataset.downOnOverlay === "1") setContactUnlinkId(null); e.currentTarget.dataset.downOnOverlay = ""; }}>
             <div className="modal modal-small" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
                 <h2>Retirer du projet ?</h2>
@@ -2670,7 +2670,7 @@ export default function ProjectDetail() {
 
         {/* MODAL CONFIRMATION SUPPRESSION DU CARNET */}
         {contactDeleteId && (
-          <div className="modal-overlay" onClick={() => setContactDeleteId(null)}>
+          <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) e.currentTarget.dataset.downOnOverlay = "1"; }} onClick={(e) => { if (e.target === e.currentTarget && e.currentTarget.dataset.downOnOverlay === "1") setContactDeleteId(null); e.currentTarget.dataset.downOnOverlay = ""; }}>
             <div className="modal modal-small" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
                 <h2>Supprimer du carnet ?</h2>
