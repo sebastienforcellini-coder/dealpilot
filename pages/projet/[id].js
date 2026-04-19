@@ -1222,9 +1222,17 @@ export default function ProjectDetail() {
                       )}
                     </div>
                     <div className="progress-bottom">
-                      <span>Consommé : <strong>{formatAmount(grandTotalCosts, project.currency)}</strong></span>
+                      <span>
+                        Consommé : <strong>{formatAmount(grandTotalCosts, project.currency)}</strong>
+                        {project.currency !== "EUR" && (
+                          <span className="progress-eur"> · ≈ {Number(toEUR(grandTotalCosts, project.currency)).toLocaleString("fr-FR")} €</span>
+                        )}
+                      </span>
                       <span className={budgetRemaining < 0 ? "over-text" : ""}>
                         {budgetRemaining < 0 ? "Dépassement" : "Reste"} : <strong>{formatAmount(Math.abs(budgetRemaining), project.currency)}</strong>
+                        {project.currency !== "EUR" && (
+                          <span className="progress-eur"> · ≈ {Number(toEUR(Math.abs(budgetRemaining), project.currency)).toLocaleString("fr-FR")} €</span>
+                        )}
                       </span>
                     </div>
                   </div>
@@ -3631,6 +3639,12 @@ export default function ProjectDetail() {
           display: block;
           font-size: 0.75rem;
           color: #687085;
+        }
+        .progress-eur {
+          color: #687085;
+          font-size: 0.85rem;
+          font-weight: 400;
+          margin-left: 0.25rem;
         }
 
         .cost-menu-wrapper {
