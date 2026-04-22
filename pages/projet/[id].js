@@ -3,6 +3,7 @@ import { useRouter } from "next/router";
 import Head from "next/head";
 import Link from "next/link";
 import AppHeader from "../../components/AppHeader";
+import DocumentsTab from "../../components/DocumentsTab";
 
 export default function ProjectDetail() {
   const router = useRouter();
@@ -1731,13 +1732,9 @@ export default function ProjectDetail() {
               </div>
             )}
 
-            {activeTab === "documents" && (
-              <div className="placeholder-card">
-                <h3>Documents</h3>
-                <p>Compromis, diagnostics, devis, factures, plans…</p>
-                <p className="coming-soon">⏳ Upload et stockage sécurisé (étape 4)</p>
-              </div>
-            )}
+           {activeTab === "documents" && (
+  <DocumentsTab projectId={project?.id} />
+)}
           </section>
         </main>
 
