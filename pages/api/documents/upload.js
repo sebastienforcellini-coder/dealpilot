@@ -3,7 +3,7 @@ import { neon } from "@neondatabase/serverless";
 import { IncomingForm } from "formidable";
 import fs from "fs";
 
-const sql = neon(process.env.DATABASE_URL);
+const sql = neon(process.env.NEON_DATABASE_URL);
 
 // Désactive le body parser Next.js pour pouvoir parser le FormData nous-mêmes
 export const config = {
