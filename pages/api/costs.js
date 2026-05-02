@@ -31,6 +31,8 @@ export default async function handler(req, res) {
         amount_cash_fees,
         base_reference,
         is_cash,
+        exchange_rate,
+        amount_original,
       } = req.body;
 
       if (!project_id || !category || !label) {
@@ -45,7 +47,8 @@ export default async function handler(req, res) {
           project_id, category, label, amount, currency, percentage,
           base_amount, tax_rate, fixed_fee, input_mode, type_key,
           contact_id, status, paid, paid_date, due_date, compromise_date, notes, sort_order,
-          amount_official, amount_cash, amount_cash_fees, base_reference, is_cash
+          amount_official, amount_cash, amount_cash_fees, base_reference, is_cash,
+          exchange_rate, amount_original
         ) VALUES (
           ${Number(project_id)},
           ${category},
@@ -70,7 +73,9 @@ export default async function handler(req, res) {
           ${amount_cash ? Number(amount_cash) : null},
           ${amount_cash_fees ? Number(amount_cash_fees) : null},
           ${base_reference || "official"},
-          ${is_cash || false}
+          ${is_cash || false},
+          ${exchange_rate ? Number(exchange_rate) : 1},
+          ${amount_original ? Number(amount_original) : null}
         )
         RETURNING *
       `;

@@ -45,6 +45,8 @@ export default async function handler(req, res) {
       if ("amount_cash_fees" in p) await sql`UPDATE costs SET amount_cash_fees = ${p.amount_cash_fees ? Number(p.amount_cash_fees) : null}, updated_at = NOW() WHERE id = ${costId}`;
       if ("base_reference" in p) await sql`UPDATE costs SET base_reference = ${p.base_reference || "official"}, updated_at = NOW() WHERE id = ${costId}`;
       if ("is_cash" in p) await sql`UPDATE costs SET is_cash = ${p.is_cash || false}, updated_at = NOW() WHERE id = ${costId}`;
+      if ("exchange_rate" in p) await sql`UPDATE costs SET exchange_rate = ${p.exchange_rate ? Number(p.exchange_rate) : 1}, updated_at = NOW() WHERE id = ${costId}`;
+      if ("amount_original" in p) await sql`UPDATE costs SET amount_original = ${p.amount_original ? Number(p.amount_original) : null}, updated_at = NOW() WHERE id = ${costId}`;
 
       const [cost] = await sql`SELECT * FROM costs WHERE id = ${costId}`;
       return res.json({ success: true, cost });

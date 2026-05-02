@@ -95,6 +95,10 @@ export default function ProjectDetail() {
     // Base de référence pour les %
     base_reference: "official", // "official" (800k) ou "real" (1,180M)
     is_cash: false,
+    // === MULTI-DEVISE (mode normal "amount" uniquement) ===
+    input_currency: "", // "" ou "EUR" — vide = devise du projet (MAD)
+    exchange_rate: "", // taux figé à la création (ex: 10.85 pour 1 EUR = 10.85 MAD)
+    amount_original: "", // montant saisi en devise originale (ex: 1200 EUR)
   });
 
   // --- INTERACTIONS ---
@@ -135,6 +139,10 @@ export default function ProjectDetail() {
           MAD: 1 / d.rates.MAD,
           USD: 1 / d.rates.USD,
           GBP: 1 / d.rates.GBP,
+          // On stocke aussi les taux directs (1 EUR = X MAD) pour la conversion EUR->MAD
+          _eurToMad: d.rates.MAD,
+          _eurToUsd: d.rates.USD,
+          _eurToGbp: d.rates.GBP,
         });
       }
     } catch (err) {
@@ -154,6 +162,18 @@ export default function ProjectDetail() {
     if (currency === "USD") return `$${n}`;
     if (currency === "GBP") return `£${n}`;
     return `${n} ${currency}`;
+  };
+
+  // === Helper conversion EUR -> devise du projet (MAD) ===
+  // Retourne le taux 1 EUR = X (devise du projet)
+  const getEurToProjectRate = () => {
+    if (!project) return 1;
+    const projCurrency = project.currency || "MAD";
+    if (projCurrency === "EUR") return 1;
+    if (projCurrency === "MAD") return rates._eurToMad || 10.85;
+    if (projCurrency === "USD") return rates._eurToUsd || 1.08;
+    if (projCurrency === "GBP") return rates._eurToGbp || 0.86;
+    return 1;
   };
 
   const statusLabels = {
@@ -687,6 +707,11 @@ export default function ProjectDetail() {
     }
     // Mode montant direct
     if (cost.input_mode === "amount" || !cost.input_mode) {
+      // === MULTI-DEVISE : si saisie en EUR, on convertit avec le taux figé ===
+      if (cost.input_currency === "EUR" && cost.amount_original) {
+        const rate = Number(cost.exchange_rate || getEurToProjectRate());
+        return Math.round(Number(cost.amount_original) * rate);
+      }
       return Number(cost.amount || 0);
     }
     // Mode pourcentage simple
@@ -708,8 +733,6 @@ export default function ProjectDetail() {
   };
 
   // Récupère le prix d'achat selon la base demandée
-  // reference = "official" → retourne juste amount_official (800k)
-  // reference = "real" → retourne le total (1,180M)
   const getPurchasePrice = (reference = "official") => {
     const purchase = costs.find((c) => c.type_key === "prix_achat");
     if (!purchase) return 0;
@@ -719,7 +742,6 @@ export default function ProjectDetail() {
       }
       return Number(purchase.amount_official || 0);
     }
-    // Si pas en mode split, on retourne juste le montant simple
     return Number(purchase.amount || 0);
   };
 
@@ -745,29 +767,27 @@ export default function ProjectDetail() {
       amount_cash_fees: "",
       base_reference: "official",
       is_cash: false,
+      input_currency: "",
+      exchange_rate: "",
+      amount_original: "",
     });
     setEditingCostId(null);
     setShowCostForm(false);
     setCostCatalogOpen(false);
   };
 
-  // Ouvrir le catalogue (choisir un poste pré-défini)
   const openCostCatalog = () => {
     resetCostForm();
     setCostCatalogOpen(true);
   };
 
-  // Sélectionner un poste du catalogue → pré-remplit le formulaire
   const pickCostFromCatalog = (item) => {
-    // Base par défaut du poste (définie dans le catalogue)
     const baseRef = item.default_base || "official";
     const purchasePrice = getPurchasePrice(baseRef);
-    // Pré-sélection du contact (agent ou notaire) si on a dejà un contact de ce type associé
     let preContactId = "";
     if (item.contact_type) {
       const match = contacts.find((c) => c.type === item.contact_type);
       if (match) preContactId = String(match.id);
-      // Pour l'agent, on utilise la commission du contact en priorité
       if (item.contact_type === "agent" && match && match.commission_percentage) {
         item = { ...item, percentage: Number(match.commission_percentage) };
       }
@@ -792,13 +812,18 @@ export default function ProjectDetail() {
       amount_cash_fees: "",
       base_reference: baseRef,
       is_cash: false,
+      input_currency: "",
+      exchange_rate: "",
+      amount_original: "",
     });
     setCostCatalogOpen(false);
     setShowCostForm(true);
   };
 
-  // Ouvrir en mode édition
   const openEditCost = (cost) => {
+    // Détection multi-devise
+    const inputCurrency = cost.currency && cost.currency !== (project?.currency || "MAD") ? cost.currency : "";
+
     setCostData({
       type_key: cost.type_key || "",
       category: cost.category || "acquisition",
@@ -819,24 +844,57 @@ export default function ProjectDetail() {
       amount_cash_fees: cost.amount_cash_fees ? String(cost.amount_cash_fees) : "",
       base_reference: cost.base_reference || "official",
       is_cash: cost.is_cash || false,
+      input_currency: inputCurrency,
+      exchange_rate: cost.exchange_rate ? String(cost.exchange_rate) : "",
+      amount_original: cost.amount_original ? String(cost.amount_original) : "",
     });
     setEditingCostId(cost.id);
     setShowCostForm(true);
     setCostMenuOpenId(null);
   };
 
+  // === Multi-devise : quand on change la devise ===
+  const handleCurrencyChange = (newCurrency) => {
+    if (newCurrency === "EUR") {
+      // Activer mode EUR : pré-remplir le taux du jour
+      const rate = getEurToProjectRate();
+      setCostData({
+        ...costData,
+        input_currency: "EUR",
+        exchange_rate: rate.toFixed(4),
+        amount_original: costData.amount_original || "",
+        amount: "", // on vide le montant en MAD
+      });
+    } else {
+      // Retour MAD : on vide les champs EUR
+      setCostData({
+        ...costData,
+        input_currency: "",
+        exchange_rate: "",
+        amount_original: "",
+      });
+    }
+  };
+
   const handleCostSubmit = async (e) => {
     e.preventDefault();
     try {
-      // Calcul du montant final à stocker
       const finalAmount = computeCostAmount(costData);
+
+      // === Détermination de la devise et taux à enregistrer ===
+      const isEurMode = costData.input_currency === "EUR" && costData.input_mode === "amount";
+      const finalCurrency = isEurMode ? "EUR" : (project.currency || "MAD");
+      const finalExchangeRate = isEurMode ? Number(costData.exchange_rate) : 1;
+      const finalAmountOriginal = isEurMode ? Number(costData.amount_original) : finalAmount;
 
       const body = {
         type_key: costData.type_key || null,
         category: costData.category,
         label: costData.label,
-        amount: finalAmount,
-        currency: project.currency,
+        amount: finalAmount, // toujours en devise du projet
+        currency: finalCurrency, // devise saisie ("EUR" ou devise projet)
+        exchange_rate: finalExchangeRate,
+        amount_original: finalAmountOriginal,
         percentage: costData.percentage || null,
         base_amount: costData.base_amount || null,
         tax_rate: costData.tax_rate || null,
@@ -847,7 +905,6 @@ export default function ProjectDetail() {
         due_date: costData.due_date || null,
         compromise_date: costData.compromise_date || null,
         notes: costData.notes,
-        // Champs split (pour prix d'achat)
         amount_official: costData.amount_official || null,
         amount_cash: costData.amount_cash || null,
         amount_cash_fees: costData.amount_cash_fees || null,
@@ -915,10 +972,8 @@ export default function ProjectDetail() {
     autre: "👤",
   };
 
-  // Transforme un numéro en URL WhatsApp (wa.me accepte seulement des chiffres, sans +, ni espaces, ni symboles)
   const toWhatsAppUrl = (phone) => {
     if (!phone) return "";
-    // Garder uniquement les chiffres (supprime +, espaces, tirets, parenthèses, points)
     const digits = String(phone).replace(/\D/g, "");
     return `https://wa.me/${digits}`;
   };
@@ -936,7 +991,6 @@ export default function ProjectDetail() {
     { id: "apercu", label: "Aperçu" },
     { id: "budget", label: "Budget & Coûts" },
     { id: "contacts", label: "Contacts" },
-    // { id: "chronologie", label: "Chronologie" }, // TODO Sprint 3 : réactiver quand la feature sera développée
     { id: "documents", label: "Documents" },
   ];
 
@@ -970,7 +1024,7 @@ export default function ProjectDetail() {
   const totalWorksActual = works.reduce((sum, w) => sum + Number(w.actual_amount || 0), 0);
   const grandTotal = totalCosts + totalWorksEstimated;
 
-  // Calculs de totaux par catégorie (Budget & Coûts)
+  // Calculs de totaux par catégorie
   const costsByCategory = {
     acquisition: costs.filter((c) => c.category === "acquisition"),
     travaux: costs.filter((c) => c.category === "travaux"),
@@ -988,6 +1042,32 @@ export default function ProjectDetail() {
   const budgetUsagePercent = targetBudget > 0 ? Math.round((grandTotalCosts / targetBudget) * 100) : 0;
   const budgetRemaining = targetBudget - grandTotalCosts;
 
+  // === Helper : format pour ligne de coût avec multi-devise ===
+  const renderCostAmount = (c) => {
+    const projCurrency = project.currency || "MAD";
+    // Cas multi-devise : currency différente de la devise du projet
+    if (c.currency && c.currency !== projCurrency && c.amount_original) {
+      return (
+        <>
+          <span className="cost-amount">{formatAmount(c.amount_original, c.currency)}</span>
+          <span className="cost-amount-converted">≈ {formatAmount(c.amount, projCurrency)}</span>
+          {projCurrency !== "EUR" && (
+            <span className="cost-amount-eur">≈ {Number(toEUR(c.amount, projCurrency)).toLocaleString("fr-FR")} €</span>
+          )}
+        </>
+      );
+    }
+    // Cas normal : devise du projet
+    return (
+      <>
+        <span className="cost-amount">{formatAmount(c.amount, projCurrency)}</span>
+        {projCurrency !== "EUR" && (
+          <span className="cost-amount-eur">≈ {Number(toEUR(c.amount, projCurrency)).toLocaleString("fr-FR")} €</span>
+        )}
+      </>
+    );
+  };
+
   return (
     <>
       <Head>
@@ -1002,12 +1082,9 @@ export default function ProjectDetail() {
       </Head>
 
       <div className="app">
-        {/* HEADER PARTAGÉ */}
         <AppHeader />
 
-        {/* MAIN */}
         <main className="main">
-          {/* Breadcrumb */}
           <div className="breadcrumb-row">
             <div className="breadcrumb">
               <Link href="/">Tableau de bord</Link>
@@ -1024,7 +1101,6 @@ export default function ProjectDetail() {
             </div>
           </div>
 
-          {/* Page head */}
           <div className="page-head">
             <div>
               <div className="project-meta">
@@ -1046,7 +1122,6 @@ export default function ProjectDetail() {
             </div>
           </div>
 
-          {/* Tabs */}
           <nav className="tabs">
             {tabs.map((t) => (
               <button
@@ -1059,7 +1134,6 @@ export default function ProjectDetail() {
             ))}
           </nav>
 
-          {/* Content */}
           <section className="content">
             {activeTab === "apercu" && (
               <div className="cards-grid">
@@ -1136,12 +1210,9 @@ export default function ProjectDetail() {
                   )}
                 </div>
 
-                {/* CARD STATUT FONCIER (si pays = Maroc et au moins un champ rempli) */}
                 {(project.country || "").toLowerCase().includes("maroc") && (project.land_status || project.requisition_number || project.title_number || project.melkia_reference) && (
                   <div className="info-card land-card">
                     <h3>🇲🇦 Statut foncier</h3>
-
-                    {/* Timeline visuelle */}
                     <div className="land-timeline">
                       <div className={`land-step ${project.land_status === "melkia" || project.land_status === "requisition" || project.land_status === "titre" ? "step-done" : ""}`}>
                         <div className="step-dot"></div>
@@ -1158,7 +1229,6 @@ export default function ProjectDetail() {
                         <span>Titre foncier</span>
                       </div>
                     </div>
-
                     <dl className="info-list" style={{ marginTop: "1.25rem" }}>
                       {project.melkia_reference && (<><dt>Réf. Melkia</dt><dd>{project.melkia_reference}</dd></>)}
                       {project.requisition_number && (<><dt>N° réquisition</dt><dd>{project.requisition_number}</dd></>)}
@@ -1167,7 +1237,6 @@ export default function ProjectDetail() {
                       {project.title_date && (<><dt>Date du titre</dt><dd>{new Date(project.title_date).toLocaleDateString("fr-FR")}</dd></>)}
                       {project.conservation_office && (<><dt>Conservation</dt><dd>{project.conservation_office}</dd></>)}
                     </dl>
-
                     {project.land_notes && (
                       <div className="land-notes">
                         <span className="land-notes-label">Notes :</span>
@@ -1181,7 +1250,6 @@ export default function ProjectDetail() {
 
             {activeTab === "budget" && (
               <div className="budget-section">
-                {/* En-tête avec totaux et progression */}
                 <div className="budget-header">
                   <div className="budget-header-title">
                     <h3 className="section-title">Budget & Coûts</h3>
@@ -1198,7 +1266,6 @@ export default function ProjectDetail() {
                   </div>
                 </div>
 
-                {/* Barre de progression vs budget cible */}
                 {targetBudget > 0 && (
                   <div className="budget-progress-card">
                     <div className="progress-top">
@@ -1239,10 +1306,8 @@ export default function ProjectDetail() {
                   </div>
                 )}
 
-                {/* Donut + Catégories */}
                 {costs.length > 0 && (
                   <div className="budget-layout">
-                    {/* Donut répartition */}
                     <div className="donut-card">
                       <h4 className="donut-title">Répartition</h4>
                       <div className="donut-wrapper">
@@ -1295,7 +1360,6 @@ export default function ProjectDetail() {
                       </ul>
                     </div>
 
-                    {/* Liste par catégorie */}
                     <div className="costs-list">
                       {["acquisition", "travaux", "mobilier", "autre"].map((cat) => {
                         const items = costsByCategory[cat];
@@ -1322,6 +1386,9 @@ export default function ProjectDetail() {
                                       {c.is_cash && (
                                         <span className="cash-tag">💵 CASH</span>
                                       )}
+                                      {c.currency && c.currency !== (project.currency || "MAD") && (
+                                        <span className="currency-tag">{c.currency}</span>
+                                      )}
                                     </div>
                                     <div className="cost-meta">
                                       {c.input_mode === "split" && (
@@ -1339,6 +1406,11 @@ export default function ProjectDetail() {
                                           {c.base_reference === "real" && <span className="base-ref-indicator"> (prix réel)</span>}
                                         </span>
                                       )}
+                                      {c.currency && c.currency !== (project.currency || "MAD") && c.exchange_rate && (
+                                        <span className="cost-tag">
+                                          Taux : 1 {c.currency} = {Number(c.exchange_rate).toFixed(4)} {project.currency}
+                                        </span>
+                                      )}
                                       {c.contact_name && (
                                         <span className="cost-contact">→ {c.contact_name}</span>
                                       )}
@@ -1349,7 +1421,6 @@ export default function ProjectDetail() {
                                         <span className="cost-date">📅 Acte : {new Date(c.due_date).toLocaleDateString("fr-FR")}</span>
                                       )}
                                     </div>
-                                    {/* Sous-lignes visuelles pour le prix d'achat en mode split */}
                                     {c.input_mode === "split" && (
                                       <div className="split-sublines">
                                         <div className="subline">
@@ -1372,10 +1443,7 @@ export default function ProjectDetail() {
                                     )}
                                   </div>
                                   <div className="cost-right">
-                                    <span className="cost-amount">{formatAmount(c.amount, project.currency)}</span>
-                                    {project.currency !== "EUR" && (
-                                      <span className="cost-amount-eur">≈ {Number(toEUR(c.amount, project.currency)).toLocaleString("fr-FR")} €</span>
-                                    )}
+                                    {renderCostAmount(c)}
                                   </div>
                                   <div className="cost-menu-wrapper">
                                     <button
@@ -1422,7 +1490,6 @@ export default function ProjectDetail() {
                   </div>
                 )}
 
-                {/* État vide */}
                 {costs.length === 0 && (
                   <div className="empty-state">
                     <div className="empty-icon-big">💰</div>
@@ -1438,7 +1505,6 @@ export default function ProjectDetail() {
 
             {activeTab === "contacts" && (
               <div className="contacts-section">
-                {/* Header avec boutons ajouter */}
                 <div className="contacts-header">
                   <div>
                     <h3 className="section-title">Contacts du projet</h3>
@@ -1458,7 +1524,6 @@ export default function ProjectDetail() {
                   </div>
                 </div>
 
-                {/* Liste des contacts groupés par type */}
                 {contacts.length === 0 ? (
                   <div className="empty-state">
                     <div className="empty-icon-big">📇</div>
@@ -1600,7 +1665,6 @@ export default function ProjectDetail() {
                             )}
                           </div>
 
-                          {/* Bouton pour déplier l'historique */}
                           <button
                             className="toggle-interactions"
                             onClick={() => setExpandedContactId(isExpanded ? null : c.id)}
@@ -1622,7 +1686,6 @@ export default function ProjectDetail() {
                                 </button>
                               </div>
 
-                              {/* Formulaire d'ajout d'interaction (inline) */}
                               {showInteractionForm === c.id && (
                                 <form
                                   className="interaction-form"
@@ -1681,7 +1744,6 @@ export default function ProjectDetail() {
                                 </form>
                               )}
 
-                              {/* Liste des interactions */}
                               {contactInteractions.length === 0 ? (
                                 <p className="empty-interactions">Aucun échange enregistré</p>
                               ) : (
@@ -1720,21 +1782,9 @@ export default function ProjectDetail() {
               </div>
             )}
 
-            {activeTab === "chronologie" && (
-              <div className="placeholder-card">
-                <h3>Chronologie du projet</h3>
-                <p>Étapes clés : visites, offre, compromis, acte, travaux, livraison.</p>
-                <p className="coming-soon">⏳ Timeline interactive (étape 4)</p>
-                <div className="quick-summary">
-                  <div className="quick-row"><span>Étapes totales</span><strong>{timeline.length}</strong></div>
-                  <div className="quick-row"><span>Terminées</span><strong>{timeline.filter(e => e.status === "termine").length}</strong></div>
-                </div>
-              </div>
+            {activeTab === "documents" && (
+              <DocumentsTab projectId={project?.id} />
             )}
-
-           {activeTab === "documents" && (
-  <DocumentsTab projectId={project?.id} />
-)}
           </section>
         </main>
 
@@ -1749,19 +1799,11 @@ export default function ProjectDetail() {
               <form onSubmit={handleEditSubmit} className="modal-form">
                 <label>
                   <span>Nom du projet *</span>
-                  <input
-                    type="text"
-                    required
-                    value={editData.name}
-                    onChange={(e) => setEditData({ ...editData, name: e.target.value })}
-                  />
+                  <input type="text" required value={editData.name} onChange={(e) => setEditData({ ...editData, name: e.target.value })} />
                 </label>
                 <label>
                   <span>Statut</span>
-                  <select
-                    value={editData.status}
-                    onChange={(e) => setEditData({ ...editData, status: e.target.value })}
-                  >
+                  <select value={editData.status} onChange={(e) => setEditData({ ...editData, status: e.target.value })}>
                     <option value="prospection">Prospection</option>
                     <option value="negociation">Négociation</option>
                     <option value="compromis">Compromis signé</option>
@@ -1773,44 +1815,25 @@ export default function ProjectDetail() {
                 <div className="row">
                   <label>
                     <span>Pays</span>
-                    <input
-                      type="text"
-                      value={editData.country}
-                      onChange={(e) => setEditData({ ...editData, country: e.target.value })}
-                    />
+                    <input type="text" value={editData.country} onChange={(e) => setEditData({ ...editData, country: e.target.value })} />
                   </label>
                   <label>
                     <span>Ville</span>
-                    <input
-                      type="text"
-                      value={editData.city}
-                      onChange={(e) => setEditData({ ...editData, city: e.target.value })}
-                    />
+                    <input type="text" value={editData.city} onChange={(e) => setEditData({ ...editData, city: e.target.value })} />
                   </label>
                 </div>
                 <label>
                   <span>Adresse précise</span>
-                  <input
-                    type="text"
-                    value={editData.address}
-                    onChange={(e) => setEditData({ ...editData, address: e.target.value })}
-                  />
+                  <input type="text" value={editData.address} onChange={(e) => setEditData({ ...editData, address: e.target.value })} />
                 </label>
                 <div className="row">
                   <label>
                     <span>Budget total cible</span>
-                    <input
-                      type="number"
-                      value={editData.target_budget}
-                      onChange={(e) => setEditData({ ...editData, target_budget: e.target.value })}
-                    />
+                    <input type="number" value={editData.target_budget} onChange={(e) => setEditData({ ...editData, target_budget: e.target.value })} />
                   </label>
                   <label>
                     <span>Devise locale</span>
-                    <select
-                      value={editData.currency}
-                      onChange={(e) => setEditData({ ...editData, currency: e.target.value })}
-                    >
+                    <select value={editData.currency} onChange={(e) => setEditData({ ...editData, currency: e.target.value })}>
                       <option value="MAD">MAD — Dirham marocain</option>
                       <option value="EUR">EUR — Euro</option>
                       <option value="USD">USD — Dollar US</option>
@@ -1820,128 +1843,74 @@ export default function ProjectDetail() {
                 </div>
                 <label>
                   <span>Type de bien</span>
-                  <input
-                    type="text"
-                    value={editData.property_type}
-                    onChange={(e) => setEditData({ ...editData, property_type: e.target.value })}
-                  />
+                  <input type="text" value={editData.property_type} onChange={(e) => setEditData({ ...editData, property_type: e.target.value })} />
                 </label>
                 <label>
                   <span>Description</span>
-                  <textarea
-                    rows="3"
-                    value={editData.description}
-                    onChange={(e) => setEditData({ ...editData, description: e.target.value })}
-                  />
+                  <textarea rows="3" value={editData.description} onChange={(e) => setEditData({ ...editData, description: e.target.value })} />
                 </label>
 
-                {/* STATUT FONCIER MAROC */}
                 {(editData.country || "").toLowerCase().includes("maroc") && (
                   <>
                     <div className="section-divider">
                       <span>🇲🇦 Statut foncier (Maroc)</span>
                     </div>
-
                     <label>
                       <span>Statut foncier actuel</span>
-                      <select
-                        value={editData.land_status}
-                        onChange={(e) => setEditData({ ...editData, land_status: e.target.value })}
-                      >
+                      <select value={editData.land_status} onChange={(e) => setEditData({ ...editData, land_status: e.target.value })}>
                         <option value="">— Non renseigné —</option>
                         <option value="melkia">Melkia (non titré)</option>
                         <option value="requisition">Réquisition en cours</option>
                         <option value="titre">Titre foncier (immatriculé)</option>
                       </select>
                     </label>
-
                     {(editData.land_status === "melkia" || editData.land_status === "requisition") && (
                       <label>
                         <span>Référence Melkia (acte adoulaire)</span>
-                        <input
-                          type="text"
-                          value={editData.melkia_reference}
-                          onChange={(e) => setEditData({ ...editData, melkia_reference: e.target.value })}
-                          placeholder="Numéro ou référence de l'acte"
-                        />
+                        <input type="text" value={editData.melkia_reference} onChange={(e) => setEditData({ ...editData, melkia_reference: e.target.value })} placeholder="Numéro ou référence de l'acte" />
                       </label>
                     )}
-
                     {(editData.land_status === "requisition" || editData.land_status === "titre") && (
                       <div className="row">
                         <label>
                           <span>N° de réquisition</span>
-                          <input
-                            type="text"
-                            value={editData.requisition_number}
-                            onChange={(e) => setEditData({ ...editData, requisition_number: e.target.value })}
-                            placeholder="Ex: R 12345/24"
-                          />
+                          <input type="text" value={editData.requisition_number} onChange={(e) => setEditData({ ...editData, requisition_number: e.target.value })} placeholder="Ex: R 12345/24" />
                         </label>
                         <label>
                           <span>Date de réquisition</span>
-                          <input
-                            type="date"
-                            value={editData.requisition_date}
-                            onChange={(e) => setEditData({ ...editData, requisition_date: e.target.value })}
-                          />
+                          <input type="date" value={editData.requisition_date} onChange={(e) => setEditData({ ...editData, requisition_date: e.target.value })} />
                         </label>
                       </div>
                     )}
-
                     {editData.land_status === "titre" && (
                       <div className="row">
                         <label>
                           <span>N° de titre foncier</span>
-                          <input
-                            type="text"
-                            value={editData.title_number}
-                            onChange={(e) => setEditData({ ...editData, title_number: e.target.value })}
-                            placeholder="Ex: TF 98765/M"
-                          />
+                          <input type="text" value={editData.title_number} onChange={(e) => setEditData({ ...editData, title_number: e.target.value })} placeholder="Ex: TF 98765/M" />
                         </label>
                         <label>
                           <span>Date du titre</span>
-                          <input
-                            type="date"
-                            value={editData.title_date}
-                            onChange={(e) => setEditData({ ...editData, title_date: e.target.value })}
-                          />
+                          <input type="date" value={editData.title_date} onChange={(e) => setEditData({ ...editData, title_date: e.target.value })} />
                         </label>
                       </div>
                     )}
-
                     {editData.land_status && (
                       <>
                         <label>
                           <span>Conservation foncière</span>
-                          <input
-                            type="text"
-                            value={editData.conservation_office}
-                            onChange={(e) => setEditData({ ...editData, conservation_office: e.target.value })}
-                            placeholder="Ex: Marrakech Médina"
-                          />
+                          <input type="text" value={editData.conservation_office} onChange={(e) => setEditData({ ...editData, conservation_office: e.target.value })} placeholder="Ex: Marrakech Médina" />
                         </label>
                         <label>
                           <span>Notes foncières</span>
-                          <textarea
-                            rows="2"
-                            value={editData.land_notes}
-                            onChange={(e) => setEditData({ ...editData, land_notes: e.target.value })}
-                            placeholder="Clauses suspensives, bornage, observations, oppositions, etc."
-                          />
+                          <textarea rows="2" value={editData.land_notes} onChange={(e) => setEditData({ ...editData, land_notes: e.target.value })} placeholder="Clauses suspensives, bornage, observations, oppositions, etc." />
                         </label>
                       </>
                     )}
                   </>
                 )}
                 <div className="modal-actions">
-                  <button type="button" className="btn-ghost" onClick={() => setShowEdit(false)}>
-                    Annuler
-                  </button>
-                  <button type="submit" className="btn-primary">
-                    Enregistrer
-                  </button>
+                  <button type="button" className="btn-ghost" onClick={() => setShowEdit(false)}>Annuler</button>
+                  <button type="submit" className="btn-primary">Enregistrer</button>
                 </div>
               </form>
             </div>
@@ -1961,18 +1930,14 @@ export default function ProjectDetail() {
                 <p>Tous les contacts, coûts, postes travaux, documents et étapes de chronologie liés à ce projet seront également supprimés définitivement.</p>
               </div>
               <div className="modal-actions" style={{ padding: "1rem 1.75rem 1.75rem" }}>
-                <button type="button" className="btn-ghost" onClick={() => setShowDeleteConfirm(false)}>
-                  Annuler
-                </button>
-                <button type="button" className="btn-danger" onClick={handleDelete}>
-                  Supprimer définitivement
-                </button>
+                <button type="button" className="btn-ghost" onClick={() => setShowDeleteConfirm(false)}>Annuler</button>
+                <button type="button" className="btn-danger" onClick={handleDelete}>Supprimer définitivement</button>
               </div>
             </div>
           </div>
         )}
 
-        {/* MODAL CATALOGUE DES POSTES DE COÛT */}
+        {/* MODAL CATALOGUE */}
         {costCatalogOpen && (
           <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) e.currentTarget.dataset.downOnOverlay = "1"; }} onClick={(e) => { if (e.target === e.currentTarget && e.currentTarget.dataset.downOnOverlay === "1") setCostCatalogOpen(false); e.currentTarget.dataset.downOnOverlay = ""; }}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -1994,21 +1959,14 @@ export default function ProjectDetail() {
                       </h4>
                       <div className="catalog-items">
                         {items.map((item) => (
-                          <button
-                            key={item.key}
-                            type="button"
-                            className="catalog-item"
-                            onClick={() => pickCostFromCatalog(item)}
-                          >
+                          <button key={item.key} type="button" className="catalog-item" onClick={() => pickCostFromCatalog(item)}>
                             <span className="catalog-icon">{item.icon}</span>
                             <div className="catalog-text">
                               <div className="catalog-label">{item.label}</div>
                               <div className="catalog-description">{item.description}</div>
                               {item.hint && <div className="catalog-hint">💡 {item.hint}</div>}
                             </div>
-                            {item.percentage && (
-                              <span className="catalog-pct">{item.percentage}%</span>
-                            )}
+                            {item.percentage && (<span className="catalog-pct">{item.percentage}%</span>)}
                           </button>
                         ))}
                       </div>
@@ -2032,11 +1990,7 @@ export default function ProjectDetail() {
                 <div className="row">
                   <label>
                     <span>Catégorie *</span>
-                    <select
-                      required
-                      value={costData.category}
-                      onChange={(e) => setCostData({ ...costData, category: e.target.value })}
-                    >
+                    <select required value={costData.category} onChange={(e) => setCostData({ ...costData, category: e.target.value })}>
                       <option value="acquisition">🏠 Acquisition</option>
                       <option value="travaux">🔨 Travaux</option>
                       <option value="mobilier">🪑 Mobilier & Déco</option>
@@ -2045,10 +1999,7 @@ export default function ProjectDetail() {
                   </label>
                   <label>
                     <span>Statut</span>
-                    <select
-                      value={costData.status}
-                      onChange={(e) => setCostData({ ...costData, status: e.target.value })}
-                    >
+                    <select value={costData.status} onChange={(e) => setCostData({ ...costData, status: e.target.value })}>
                       <option value="estime">Estimé</option>
                       <option value="engage">Engagé</option>
                       <option value="paye">Payé</option>
@@ -2058,64 +2009,93 @@ export default function ProjectDetail() {
 
                 <label>
                   <span>Libellé *</span>
-                  <input
-                    type="text"
-                    required
-                    value={costData.label}
-                    onChange={(e) => setCostData({ ...costData, label: e.target.value })}
-                    placeholder="Ex: Prix d'achat du bien"
-                  />
+                  <input type="text" required value={costData.label} onChange={(e) => setCostData({ ...costData, label: e.target.value })} placeholder="Ex: Prix d'achat du bien" />
                 </label>
 
-                {/* Mode de saisie : toggle */}
                 <div className="section-divider">
                   <span>💰 Montant</span>
                 </div>
                 <div className="commission-toggle mode-toggle">
-                  <button
-                    type="button"
-                    className={`toggle-btn ${costData.input_mode === "amount" ? "toggle-active" : ""}`}
-                    onClick={() => setCostData({ ...costData, input_mode: "amount" })}
-                  >
-                    Montant fixe
-                  </button>
-                  <button
-                    type="button"
-                    className={`toggle-btn ${costData.input_mode === "percentage" ? "toggle-active" : ""}`}
-                    onClick={() => setCostData({ ...costData, input_mode: "percentage" })}
-                  >
-                    % du prix
-                  </button>
-                  <button
-                    type="button"
-                    className={`toggle-btn ${costData.input_mode === "complex" ? "toggle-active" : ""}`}
-                    onClick={() => setCostData({ ...costData, input_mode: "complex" })}
-                  >
-                    % + TVA + forfait
-                  </button>
-                  <button
-                    type="button"
-                    className={`toggle-btn ${costData.input_mode === "split" ? "toggle-active" : ""}`}
-                    onClick={() => setCostData({ ...costData, input_mode: "split" })}
-                  >
-                    Déclaré + Cash 💵
-                  </button>
+                  <button type="button" className={`toggle-btn ${costData.input_mode === "amount" ? "toggle-active" : ""}`} onClick={() => setCostData({ ...costData, input_mode: "amount" })}>Montant fixe</button>
+                  <button type="button" className={`toggle-btn ${costData.input_mode === "percentage" ? "toggle-active" : ""}`} onClick={() => setCostData({ ...costData, input_mode: "percentage", input_currency: "", exchange_rate: "", amount_original: "" })}>% du prix</button>
+                  <button type="button" className={`toggle-btn ${costData.input_mode === "complex" ? "toggle-active" : ""}`} onClick={() => setCostData({ ...costData, input_mode: "complex", input_currency: "", exchange_rate: "", amount_original: "" })}>% + TVA + forfait</button>
+                  <button type="button" className={`toggle-btn ${costData.input_mode === "split" ? "toggle-active" : ""}`} onClick={() => setCostData({ ...costData, input_mode: "split", input_currency: "", exchange_rate: "", amount_original: "" })}>Déclaré + Cash 💵</button>
                 </div>
 
-                {/* Saisie selon le mode */}
+                {/* === MODE AMOUNT — avec sélecteur de devise === */}
                 {costData.input_mode === "amount" && (
-                  <label>
-                    <span>Montant ({project.currency})</span>
-                    <input
-                      type="number"
-                      value={costData.amount}
-                      onChange={(e) => setCostData({ ...costData, amount: e.target.value })}
-                      placeholder="0"
-                    />
-                  </label>
+                  <>
+                    {/* Sélecteur de devise */}
+                    <div className="currency-selector">
+                      <span className="currency-selector-label">Devise de saisie :</span>
+                      <button
+                        type="button"
+                        className={`toggle-btn ${costData.input_currency !== "EUR" ? "toggle-active" : ""}`}
+                        onClick={() => handleCurrencyChange("")}
+                      >
+                        {project.currency} (devise du projet)
+                      </button>
+                      <button
+                        type="button"
+                        className={`toggle-btn ${costData.input_currency === "EUR" ? "toggle-active" : ""}`}
+                        onClick={() => handleCurrencyChange("EUR")}
+                      >
+                        € EUR
+                      </button>
+                    </div>
+
+                    {/* Saisie en MAD (devise du projet) */}
+                    {costData.input_currency !== "EUR" && (
+                      <label>
+                        <span>Montant ({project.currency})</span>
+                        <input type="number" value={costData.amount} onChange={(e) => setCostData({ ...costData, amount: e.target.value })} placeholder="0" />
+                      </label>
+                    )}
+
+                    {/* Saisie en EUR */}
+                    {costData.input_currency === "EUR" && (
+                      <>
+                        <label>
+                          <span>Montant en EUR (€)</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={costData.amount_original}
+                            onChange={(e) => setCostData({ ...costData, amount_original: e.target.value })}
+                            placeholder="Ex: 1200"
+                          />
+                          <small className="field-hint">Saisissez le montant tel qu'il apparaît sur votre facture (en €).</small>
+                        </label>
+                        <label>
+                          <span>Taux de change : 1 EUR = ? {project.currency}</span>
+                          <input
+                            type="number"
+                            step="0.0001"
+                            value={costData.exchange_rate}
+                            onChange={(e) => setCostData({ ...costData, exchange_rate: e.target.value })}
+                            placeholder={String(getEurToProjectRate().toFixed(4))}
+                          />
+                          <small className="field-hint">
+                            Taux du jour : 1 EUR = {getEurToProjectRate().toFixed(4)} {project.currency}.
+                            Ce taux sera <strong>figé</strong> à la création (modifiable manuellement si besoin).
+                          </small>
+                        </label>
+                        {costData.amount_original && costData.exchange_rate && (
+                          <div className="calc-preview eur-preview">
+                            <div>
+                              <strong>{Number(costData.amount_original).toLocaleString("fr-FR")} €</strong>
+                              <span> × {Number(costData.exchange_rate).toFixed(4)} =</span>
+                            </div>
+                            <strong className="preview-total">
+                              {formatAmount(Math.round(Number(costData.amount_original) * Number(costData.exchange_rate)), project.currency)}
+                            </strong>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </>
                 )}
 
-                {/* ===== MODE SPLIT : prix d'achat avec 3 champs (spécifique Maroc) ===== */}
                 {costData.input_mode === "split" && (
                   <>
                     <div className="split-banner">
@@ -2123,32 +2103,17 @@ export default function ProjectDetail() {
                     </div>
                     <label>
                       <span>💳 Part déclarée / virement notaire ({project.currency})</span>
-                      <input
-                        type="number"
-                        value={costData.amount_official}
-                        onChange={(e) => setCostData({ ...costData, amount_official: e.target.value })}
-                        placeholder="Ex: 800 000"
-                      />
+                      <input type="number" value={costData.amount_official} onChange={(e) => setCostData({ ...costData, amount_official: e.target.value })} placeholder="Ex: 800 000" />
                       <small className="field-hint">Ce montant figurera sur l'acte notarié et servira de base aux frais (notaire, enregistrement, conservation).</small>
                     </label>
                     <label>
                       <span>💵 Part cash (complément) ({project.currency})</span>
-                      <input
-                        type="number"
-                        value={costData.amount_cash}
-                        onChange={(e) => setCostData({ ...costData, amount_cash: e.target.value })}
-                        placeholder="Ex: 350 000"
-                      />
+                      <input type="number" value={costData.amount_cash} onChange={(e) => setCostData({ ...costData, amount_cash: e.target.value })} placeholder="Ex: 350 000" />
                       <small className="field-hint">Complément cash versé au vendeur (non déclaré).</small>
                     </label>
                     <label>
                       <span>💵 Frais d'acquisition ({project.currency})</span>
-                      <input
-                        type="number"
-                        value={costData.amount_cash_fees}
-                        onChange={(e) => setCostData({ ...costData, amount_cash_fees: e.target.value })}
-                        placeholder="Ex: 30 000"
-                      />
+                      <input type="number" value={costData.amount_cash_fees} onChange={(e) => setCostData({ ...costData, amount_cash_fees: e.target.value })} placeholder="Ex: 30 000" />
                       <small className="field-hint">Participation cash aux frais d'acquisition.</small>
                     </label>
                     <div className="calc-preview split-preview">
@@ -2170,26 +2135,15 @@ export default function ProjectDetail() {
 
                 {costData.input_mode === "percentage" && (
                   <>
-                    {/* Sélecteur de base pour le calcul */}
                     {getPurchasePrice("real") > 0 && getPurchasePrice("real") !== getPurchasePrice("official") && (
                       <div className="base-ref-selector">
                         <span className="base-ref-label">Calcul sur :</span>
                         <label className="base-ref-option">
-                          <input
-                            type="radio"
-                            name="base_ref"
-                            checked={costData.base_reference === "official"}
-                            onChange={() => setCostData({ ...costData, base_reference: "official", base_amount: String(getPurchasePrice("official")) })}
-                          />
+                          <input type="radio" name="base_ref" checked={costData.base_reference === "official"} onChange={() => setCostData({ ...costData, base_reference: "official", base_amount: String(getPurchasePrice("official")) })} />
                           <span>Prix déclaré : <strong>{formatAmount(getPurchasePrice("official"), project.currency)}</strong></span>
                         </label>
                         <label className="base-ref-option">
-                          <input
-                            type="radio"
-                            name="base_ref"
-                            checked={costData.base_reference === "real"}
-                            onChange={() => setCostData({ ...costData, base_reference: "real", base_amount: String(getPurchasePrice("real")) })}
-                          />
+                          <input type="radio" name="base_ref" checked={costData.base_reference === "real"} onChange={() => setCostData({ ...costData, base_reference: "real", base_amount: String(getPurchasePrice("real")) })} />
                           <span>Prix réel : <strong>{formatAmount(getPurchasePrice("real"), project.currency)}</strong></span>
                         </label>
                       </div>
@@ -2197,54 +2151,30 @@ export default function ProjectDetail() {
                     <div className="row">
                       <label>
                         <span>Pourcentage (%)</span>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={costData.percentage}
-                          onChange={(e) => setCostData({ ...costData, percentage: e.target.value })}
-                          placeholder="Ex: 4"
-                        />
+                        <input type="number" step="0.1" value={costData.percentage} onChange={(e) => setCostData({ ...costData, percentage: e.target.value })} placeholder="Ex: 4" />
                       </label>
                       <label>
                         <span>Base de calcul ({project.currency})</span>
-                        <input
-                          type="number"
-                          value={costData.base_amount}
-                          onChange={(e) => setCostData({ ...costData, base_amount: e.target.value })}
-                          placeholder="Prix d'achat par défaut"
-                        />
+                        <input type="number" value={costData.base_amount} onChange={(e) => setCostData({ ...costData, base_amount: e.target.value })} placeholder="Prix d'achat par défaut" />
                       </label>
                     </div>
                     {costData.percentage && costData.base_amount && (
-                      <div className="calc-preview">
-                        = {formatAmount(computeCostAmount(costData), project.currency)}
-                      </div>
+                      <div className="calc-preview">= {formatAmount(computeCostAmount(costData), project.currency)}</div>
                     )}
                   </>
                 )}
 
                 {costData.input_mode === "complex" && (
                   <>
-                    {/* Sélecteur de base pour le calcul */}
                     {getPurchasePrice("real") > 0 && getPurchasePrice("real") !== getPurchasePrice("official") && (
                       <div className="base-ref-selector">
                         <span className="base-ref-label">Calcul sur :</span>
                         <label className="base-ref-option">
-                          <input
-                            type="radio"
-                            name="base_ref_cmplx"
-                            checked={costData.base_reference === "official"}
-                            onChange={() => setCostData({ ...costData, base_reference: "official", base_amount: String(getPurchasePrice("official")) })}
-                          />
+                          <input type="radio" name="base_ref_cmplx" checked={costData.base_reference === "official"} onChange={() => setCostData({ ...costData, base_reference: "official", base_amount: String(getPurchasePrice("official")) })} />
                           <span>Prix déclaré : <strong>{formatAmount(getPurchasePrice("official"), project.currency)}</strong></span>
                         </label>
                         <label className="base-ref-option">
-                          <input
-                            type="radio"
-                            name="base_ref_cmplx"
-                            checked={costData.base_reference === "real"}
-                            onChange={() => setCostData({ ...costData, base_reference: "real", base_amount: String(getPurchasePrice("real")) })}
-                          />
+                          <input type="radio" name="base_ref_cmplx" checked={costData.base_reference === "real"} onChange={() => setCostData({ ...costData, base_reference: "real", base_amount: String(getPurchasePrice("real")) })} />
                           <span>Prix réel : <strong>{formatAmount(getPurchasePrice("real"), project.currency)}</strong></span>
                         </label>
                       </div>
@@ -2252,43 +2182,21 @@ export default function ProjectDetail() {
                     <div className="row">
                       <label>
                         <span>Pourcentage (%)</span>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={costData.percentage}
-                          onChange={(e) => setCostData({ ...costData, percentage: e.target.value })}
-                          placeholder="Ex: 1"
-                        />
+                        <input type="number" step="0.1" value={costData.percentage} onChange={(e) => setCostData({ ...costData, percentage: e.target.value })} placeholder="Ex: 1" />
                       </label>
                       <label>
                         <span>Base ({project.currency})</span>
-                        <input
-                          type="number"
-                          value={costData.base_amount}
-                          onChange={(e) => setCostData({ ...costData, base_amount: e.target.value })}
-                          placeholder="Prix d'achat"
-                        />
+                        <input type="number" value={costData.base_amount} onChange={(e) => setCostData({ ...costData, base_amount: e.target.value })} placeholder="Prix d'achat" />
                       </label>
                     </div>
                     <div className="row">
                       <label>
                         <span>TVA (%)</span>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={costData.tax_rate}
-                          onChange={(e) => setCostData({ ...costData, tax_rate: e.target.value })}
-                          placeholder="Ex: 20"
-                        />
+                        <input type="number" step="0.1" value={costData.tax_rate} onChange={(e) => setCostData({ ...costData, tax_rate: e.target.value })} placeholder="Ex: 20" />
                       </label>
                       <label>
                         <span>Forfait fixe ({project.currency})</span>
-                        <input
-                          type="number"
-                          value={costData.fixed_fee}
-                          onChange={(e) => setCostData({ ...costData, fixed_fee: e.target.value })}
-                          placeholder="Ex: 150"
-                        />
+                        <input type="number" value={costData.fixed_fee} onChange={(e) => setCostData({ ...costData, fixed_fee: e.target.value })} placeholder="Ex: 150" />
                       </label>
                     </div>
                     {costData.percentage && costData.base_amount && (
@@ -2300,21 +2208,14 @@ export default function ProjectDetail() {
                   </>
                 )}
 
-                <div className="section-divider">
-                  <span>Détails</span>
-                </div>
+                <div className="section-divider"><span>Détails</span></div>
 
                 <label>
                   <span>Contact associé (optionnel)</span>
-                  <select
-                    value={costData.contact_id}
-                    onChange={(e) => setCostData({ ...costData, contact_id: e.target.value })}
-                  >
+                  <select value={costData.contact_id} onChange={(e) => setCostData({ ...costData, contact_id: e.target.value })}>
                     <option value="">— Aucun contact —</option>
                     {contacts.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {contactTypeIcons[c.type] || "👤"} {c.name} ({contactTypeLabels[c.type] || c.type})
-                      </option>
+                      <option key={c.id} value={c.id}>{contactTypeIcons[c.type] || "👤"} {c.name} ({contactTypeLabels[c.type] || c.type})</option>
                     ))}
                   </select>
                 </label>
@@ -2322,41 +2223,24 @@ export default function ProjectDetail() {
                 <div className="row">
                   <label>
                     <span>📅 Date compromis</span>
-                    <input
-                      type="date"
-                      value={costData.compromise_date}
-                      onChange={(e) => setCostData({ ...costData, compromise_date: e.target.value })}
-                    />
+                    <input type="date" value={costData.compromise_date} onChange={(e) => setCostData({ ...costData, compromise_date: e.target.value })} />
                     <small className="field-hint">Paiement prévu à la signature du compromis (ex: acompte)</small>
                   </label>
                   <label>
                     <span>📅 Date acte définitif</span>
-                    <input
-                      type="date"
-                      value={costData.due_date}
-                      onChange={(e) => setCostData({ ...costData, due_date: e.target.value })}
-                    />
+                    <input type="date" value={costData.due_date} onChange={(e) => setCostData({ ...costData, due_date: e.target.value })} />
                     <small className="field-hint">Paiement prévu à la signature de l'acte</small>
                   </label>
                 </div>
 
                 <label>
                   <span>Notes</span>
-                  <textarea
-                    rows="2"
-                    value={costData.notes}
-                    onChange={(e) => setCostData({ ...costData, notes: e.target.value })}
-                    placeholder="Informations complémentaires..."
-                  />
+                  <textarea rows="2" value={costData.notes} onChange={(e) => setCostData({ ...costData, notes: e.target.value })} placeholder="Informations complémentaires..." />
                 </label>
 
                 <div className="modal-actions">
-                  <button type="button" className="btn-ghost" onClick={resetCostForm}>
-                    Annuler
-                  </button>
-                  <button type="submit" className="btn-primary">
-                    {editingCostId ? "Enregistrer" : "Ajouter le coût"}
-                  </button>
+                  <button type="button" className="btn-ghost" onClick={resetCostForm}>Annuler</button>
+                  <button type="submit" className="btn-primary">{editingCostId ? "Enregistrer" : "Ajouter le coût"}</button>
                 </div>
               </form>
             </div>
@@ -2375,18 +2259,14 @@ export default function ProjectDetail() {
                 <p>Cette action est <strong>irréversible</strong>.</p>
               </div>
               <div className="modal-actions" style={{ padding: "1rem 1.75rem 1.75rem" }}>
-                <button type="button" className="btn-ghost" onClick={() => setCostDeleteId(null)}>
-                  Annuler
-                </button>
-                <button type="button" className="btn-danger" onClick={() => deleteCost(costDeleteId)}>
-                  Supprimer
-                </button>
+                <button type="button" className="btn-ghost" onClick={() => setCostDeleteId(null)}>Annuler</button>
+                <button type="button" className="btn-danger" onClick={() => deleteCost(costDeleteId)}>Supprimer</button>
               </div>
             </div>
           </div>
         )}
 
-        {/* MODAL CONTACT : NEW / PICK / EDIT / ASSOC */}
+        {/* MODAL CONTACT */}
         {showContactForm && (
           <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) e.currentTarget.dataset.downOnOverlay = "1"; }} onClick={(e) => { if (e.target === e.currentTarget && e.currentTarget.dataset.downOnOverlay === "1") resetContactForm(); e.currentTarget.dataset.downOnOverlay = ""; }}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -2399,14 +2279,10 @@ export default function ProjectDetail() {
                 </h2>
                 <button className="close-btn" onClick={resetContactForm}>×</button>
               </div>
-
-              {/* Bandeau d'info pour expliquer le contexte */}
               {contactFormMode === "new" && (
                 <div className="info-banner">
                   Ce contact sera ajouté à votre carnet d'adresses global (réutilisable sur tous vos projets) et automatiquement associé à ce projet.
-                  <button type="button" className="link-btn" onClick={openPickContactForm}>
-                    Choisir un contact existant ↗
-                  </button>
+                  <button type="button" className="link-btn" onClick={openPickContactForm}>Choisir un contact existant ↗</button>
                 </div>
               )}
               {contactFormMode === "edit" && (
@@ -2414,49 +2290,31 @@ export default function ProjectDetail() {
                   Vous modifiez les informations du <strong>carnet global</strong>. Ces changements s'appliqueront à tous les projets liés à ce contact.
                 </div>
               )}
-
               <form onSubmit={handleContactSubmit} className="modal-form">
-
-                {/* Mode PICK : sélectionner un contact du carnet */}
                 {contactFormMode === "pick" && (
                   <>
                     <label>
                       <span>Contact à associer *</span>
-                      <select
-                        required
-                        value={pickContactId}
-                        onChange={(e) => setPickContactId(e.target.value)}
-                      >
+                      <select required value={pickContactId} onChange={(e) => setPickContactId(e.target.value)}>
                         <option value="">— Choisir un contact —</option>
                         {availableContacts.length === 0 ? (
                           <option disabled>Votre carnet est vide ou tous déjà associés</option>
                         ) : (
                           availableContacts.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {contactTypeIcons[c.type] || "👤"} {contactTypeLabels[c.type]} · {c.name}
-                              {c.company ? ` (${c.company})` : ""}
-                            </option>
+                            <option key={c.id} value={c.id}>{contactTypeIcons[c.type] || "👤"} {contactTypeLabels[c.type]} · {c.name}{c.company ? ` (${c.company})` : ""}</option>
                           ))
                         )}
                       </select>
                     </label>
-                    <button type="button" className="link-btn" onClick={openNewContactForm}>
-                      Plutôt créer un nouveau contact ↗
-                    </button>
+                    <button type="button" className="link-btn" onClick={openNewContactForm}>Plutôt créer un nouveau contact ↗</button>
                   </>
                 )}
-
-                {/* Champs contact (pour NEW et EDIT) */}
                 {(contactFormMode === "new" || contactFormMode === "edit") && (
                   <>
                     <div className="row">
                       <label>
                         <span>Type de contact *</span>
-                        <select
-                          required
-                          value={contactData.type}
-                          onChange={(e) => setContactData({ ...contactData, type: e.target.value })}
-                        >
+                        <select required value={contactData.type} onChange={(e) => setContactData({ ...contactData, type: e.target.value })}>
                           <option value="agent">🏘️ Agent immobilier</option>
                           <option value="vendeur">💰 Vendeur</option>
                           <option value="notaire">⚖️ Notaire</option>
@@ -2469,174 +2327,79 @@ export default function ProjectDetail() {
                       </label>
                       <label>
                         <span>Nom / Prénom *</span>
-                        <input
-                          type="text"
-                          required
-                          value={contactData.name}
-                          onChange={(e) => setContactData({ ...contactData, name: e.target.value })}
-                          placeholder="Sophie Martin"
-                        />
+                        <input type="text" required value={contactData.name} onChange={(e) => setContactData({ ...contactData, name: e.target.value })} placeholder="Sophie Martin" />
                       </label>
                     </div>
-
                     <div className="row">
                       <label>
                         <span>Société / Cabinet / Étude</span>
-                        <input
-                          type="text"
-                          value={contactData.company}
-                          onChange={(e) => setContactData({ ...contactData, company: e.target.value })}
-                          placeholder="Cabinet Notaire Alaoui"
-                        />
+                        <input type="text" value={contactData.company} onChange={(e) => setContactData({ ...contactData, company: e.target.value })} placeholder="Cabinet Notaire Alaoui" />
                       </label>
                       <label>
                         <span>Fonction / Rôle</span>
-                        <input
-                          type="text"
-                          value={contactData.role}
-                          onChange={(e) => setContactData({ ...contactData, role: e.target.value })}
-                          placeholder="Notaire titulaire"
-                        />
+                        <input type="text" value={contactData.role} onChange={(e) => setContactData({ ...contactData, role: e.target.value })} placeholder="Notaire titulaire" />
                       </label>
                     </div>
-
                     <div className="row">
                       <label>
                         <span>Email</span>
-                        <input
-                          type="email"
-                          value={contactData.email}
-                          onChange={(e) => setContactData({ ...contactData, email: e.target.value })}
-                          placeholder="contact@exemple.com"
-                        />
+                        <input type="email" value={contactData.email} onChange={(e) => setContactData({ ...contactData, email: e.target.value })} placeholder="contact@exemple.com" />
                       </label>
                       <label>
                         <span>Téléphone</span>
-                        <input
-                          type="tel"
-                          value={contactData.phone}
-                          onChange={(e) => setContactData({ ...contactData, phone: e.target.value })}
-                          placeholder="+212 6 12 34 56 78"
-                        />
+                        <input type="tel" value={contactData.phone} onChange={(e) => setContactData({ ...contactData, phone: e.target.value })} placeholder="+212 6 12 34 56 78" />
                       </label>
                     </div>
-
                     <label>
                       <span>Adresse</span>
-                      <input
-                        type="text"
-                        value={contactData.address}
-                        onChange={(e) => setContactData({ ...contactData, address: e.target.value })}
-                        placeholder="Rue Mohammed V, Marrakech"
-                      />
+                      <input type="text" value={contactData.address} onChange={(e) => setContactData({ ...contactData, address: e.target.value })} placeholder="Rue Mohammed V, Marrakech" />
                     </label>
-
                     <div className="row">
                       <label>
                         <span>IBAN / RIB</span>
-                        <input
-                          type="text"
-                          value={contactData.iban}
-                          onChange={(e) => setContactData({ ...contactData, iban: e.target.value })}
-                          placeholder="MA64 ..."
-                        />
+                        <input type="text" value={contactData.iban} onChange={(e) => setContactData({ ...contactData, iban: e.target.value })} placeholder="MA64 ..." />
                       </label>
                       <label>
                         <span>Site web</span>
-                        <input
-                          type="text"
-                          value={contactData.website}
-                          onChange={(e) => setContactData({ ...contactData, website: e.target.value })}
-                          placeholder="www.exemple.com"
-                        />
+                        <input type="text" value={contactData.website} onChange={(e) => setContactData({ ...contactData, website: e.target.value })} placeholder="www.exemple.com" />
                       </label>
                     </div>
-
                     <label>
                       <span>Notes (carnet global)</span>
-                      <textarea
-                        rows="2"
-                        value={contactData.notes}
-                        onChange={(e) => setContactData({ ...contactData, notes: e.target.value })}
-                        placeholder="Horaires, spécialités, recommandé par..."
-                      />
+                      <textarea rows="2" value={contactData.notes} onChange={(e) => setContactData({ ...contactData, notes: e.target.value })} placeholder="Horaires, spécialités, recommandé par..." />
                     </label>
                   </>
                 )}
-
-                {/* Champs projet (commission, rôle projet, notes projet) pour NEW / PICK / ASSOC */}
                 {(contactFormMode === "new" || contactFormMode === "pick" || contactFormMode === "assoc") && (
                   <>
-                    <div className="section-divider">
-                      <span>💰 Pour ce projet</span>
-                    </div>
-
+                    <div className="section-divider"><span>💰 Pour ce projet</span></div>
                     <label>
                       <span>Rôle sur ce projet</span>
-                      <input
-                        type="text"
-                        value={contactData.project_role}
-                        onChange={(e) => setContactData({ ...contactData, project_role: e.target.value })}
-                        placeholder="Ex: Notaire principal, Agent vendeur..."
-                      />
+                      <input type="text" value={contactData.project_role} onChange={(e) => setContactData({ ...contactData, project_role: e.target.value })} placeholder="Ex: Notaire principal, Agent vendeur..." />
                     </label>
-
                     <div className="commission-toggle">
-                      <button
-                        type="button"
-                        className={`toggle-btn ${contactData.commission_mode === "percentage" ? "toggle-active" : ""}`}
-                        onClick={() => setContactData({ ...contactData, commission_mode: "percentage" })}
-                      >
-                        En pourcentage (%)
-                      </button>
-                      <button
-                        type="button"
-                        className={`toggle-btn ${contactData.commission_mode === "amount" ? "toggle-active" : ""}`}
-                        onClick={() => setContactData({ ...contactData, commission_mode: "amount" })}
-                      >
-                        Montant fixe
-                      </button>
+                      <button type="button" className={`toggle-btn ${contactData.commission_mode === "percentage" ? "toggle-active" : ""}`} onClick={() => setContactData({ ...contactData, commission_mode: "percentage" })}>En pourcentage (%)</button>
+                      <button type="button" className={`toggle-btn ${contactData.commission_mode === "amount" ? "toggle-active" : ""}`} onClick={() => setContactData({ ...contactData, commission_mode: "amount" })}>Montant fixe</button>
                     </div>
-
                     {contactData.commission_mode === "percentage" ? (
                       <label>
                         <span>Pourcentage</span>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={contactData.commission_percentage}
-                          onChange={(e) => setContactData({ ...contactData, commission_percentage: e.target.value })}
-                          placeholder="Ex: 3 (pour 3%)"
-                        />
+                        <input type="number" step="0.1" value={contactData.commission_percentage} onChange={(e) => setContactData({ ...contactData, commission_percentage: e.target.value })} placeholder="Ex: 3 (pour 3%)" />
                       </label>
                     ) : (
                       <label>
                         <span>Montant ({project.currency})</span>
-                        <input
-                          type="number"
-                          value={contactData.commission_amount}
-                          onChange={(e) => setContactData({ ...contactData, commission_amount: e.target.value })}
-                          placeholder="Ex: 15000"
-                        />
+                        <input type="number" value={contactData.commission_amount} onChange={(e) => setContactData({ ...contactData, commission_amount: e.target.value })} placeholder="Ex: 15000" />
                       </label>
                     )}
-
                     <label>
                       <span>Notes spécifiques à ce projet</span>
-                      <textarea
-                        rows="2"
-                        value={contactData.project_notes}
-                        onChange={(e) => setContactData({ ...contactData, project_notes: e.target.value })}
-                        placeholder="Conditions négociées, modalités particulières..."
-                      />
+                      <textarea rows="2" value={contactData.project_notes} onChange={(e) => setContactData({ ...contactData, project_notes: e.target.value })} placeholder="Conditions négociées, modalités particulières..." />
                     </label>
                   </>
                 )}
-
                 <div className="modal-actions">
-                  <button type="button" className="btn-ghost" onClick={resetContactForm}>
-                    Annuler
-                  </button>
+                  <button type="button" className="btn-ghost" onClick={resetContactForm}>Annuler</button>
                   <button type="submit" className="btn-primary">
                     {contactFormMode === "new" && "Créer et associer"}
                     {contactFormMode === "pick" && "Associer au projet"}
@@ -2649,7 +2412,6 @@ export default function ProjectDetail() {
           </div>
         )}
 
-        {/* MODAL CONFIRMATION DÉLIAISON (retirer du projet) */}
         {contactUnlinkId && (
           <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) e.currentTarget.dataset.downOnOverlay = "1"; }} onClick={(e) => { if (e.target === e.currentTarget && e.currentTarget.dataset.downOnOverlay === "1") setContactUnlinkId(null); e.currentTarget.dataset.downOnOverlay = ""; }}>
             <div className="modal modal-small" onClick={(e) => e.stopPropagation()}>
@@ -2662,18 +2424,13 @@ export default function ProjectDetail() {
                 <p>Vous pourrez le ré-associer plus tard si besoin.</p>
               </div>
               <div className="modal-actions" style={{ padding: "1rem 1.75rem 1.75rem" }}>
-                <button type="button" className="btn-ghost" onClick={() => setContactUnlinkId(null)}>
-                  Annuler
-                </button>
-                <button type="button" className="btn-primary" onClick={() => unlinkContact(contactUnlinkId)}>
-                  Retirer du projet
-                </button>
+                <button type="button" className="btn-ghost" onClick={() => setContactUnlinkId(null)}>Annuler</button>
+                <button type="button" className="btn-primary" onClick={() => unlinkContact(contactUnlinkId)}>Retirer du projet</button>
               </div>
             </div>
           </div>
         )}
 
-        {/* MODAL CONFIRMATION SUPPRESSION DU CARNET */}
         {contactDeleteId && (
           <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) e.currentTarget.dataset.downOnOverlay = "1"; }} onClick={(e) => { if (e.target === e.currentTarget && e.currentTarget.dataset.downOnOverlay === "1") setContactDeleteId(null); e.currentTarget.dataset.downOnOverlay = ""; }}>
             <div className="modal modal-small" onClick={(e) => e.stopPropagation()}>
@@ -2686,12 +2443,8 @@ export default function ProjectDetail() {
                 <p>Le contact sera supprimé de votre carnet global, de <strong>tous les projets</strong> auxquels il est associé, ainsi que son historique d'échanges.</p>
               </div>
               <div className="modal-actions" style={{ padding: "1rem 1.75rem 1.75rem" }}>
-                <button type="button" className="btn-ghost" onClick={() => setContactDeleteId(null)}>
-                  Annuler
-                </button>
-                <button type="button" className="btn-danger" onClick={() => deleteContact(contactDeleteId)}>
-                  Supprimer définitivement
-                </button>
+                <button type="button" className="btn-ghost" onClick={() => setContactDeleteId(null)}>Annuler</button>
+                <button type="button" className="btn-danger" onClick={() => deleteContact(contactDeleteId)}>Supprimer définitivement</button>
               </div>
             </div>
           </div>
@@ -2714,1593 +2467,270 @@ export default function ProjectDetail() {
 
       <style jsx>{`
         .app { min-height: 100vh; display: flex; flex-direction: column; background: #F7F8FA; }
-
-        /* HEADER */
-        .header {
-          background: #0B1320;
-          padding: 1.1rem 0;
-          position: sticky;
-          top: 0;
-          z-index: 10;
-          box-shadow: 0 1px 0 rgba(212, 175, 55, 0.15);
-        }
-        .header-inner {
-          max-width: 1280px; margin: 0 auto; padding: 0 2rem;
-          display: flex; justify-content: space-between; align-items: center;
-        }
-        .brand { display: block; text-decoration: none; }
-        .brand .logo { height: 42px; width: auto; display: block; }
-        .header-actions { display: flex; align-items: center; gap: 1rem; }
-        .icon-btn {
-          background: transparent; border: 1px solid rgba(230, 233, 239, 0.15);
-          color: #E6E9EF; width: 40px; height: 40px; border-radius: 10px;
-          display: flex; align-items: center; justify-content: center;
-          position: relative; transition: all 0.2s;
-        }
-        .icon-btn:hover { border-color: #D4AF37; color: #D4AF37; }
-        .notif-wrapper { position: relative; }
-        .notif-backdrop { position: fixed; inset: 0; z-index: 20; }
-        .notif-dropdown {
-          position: absolute; top: calc(100% + 10px); right: 0;
-          width: 340px; background: #FFFFFF; border: 1px solid #EEF0F4;
-          border-radius: 14px; box-shadow: 0 12px 40px rgba(11, 19, 32, 0.18);
-          z-index: 30; overflow: hidden;
-        }
-        .notif-head { padding: 1rem 1.25rem; border-bottom: 1px solid #EEF0F4; }
-        .notif-head h3 { font-size: 0.95rem; font-weight: 600; color: #0B1320; }
-        .notif-empty { padding: 2rem 1.5rem; text-align: center; }
-        .notif-empty-title { color: #687085; font-size: 0.9rem; }
-        .avatar {
-          width: 40px; height: 40px; border-radius: 50%;
-          background: linear-gradient(135deg, #D4AF37, #b8942e);
-          color: #0B1320; display: flex; align-items: center; justify-content: center;
-          font-weight: 600; font-size: 1rem;
-        }
-
-        /* MAIN */
         .main { flex: 1; max-width: 1280px; margin: 0 auto; width: 100%; padding: 2.5rem 2rem; }
-
-        .breadcrumb {
-          display: flex; align-items: center; gap: 0.5rem;
-          color: #687085; font-size: 0.85rem;
-        }
+        .breadcrumb { display: flex; align-items: center; gap: 0.5rem; color: #687085; font-size: 0.85rem; }
         .breadcrumb a { color: #687085; text-decoration: none; transition: color 0.2s; }
         .breadcrumb a:hover { color: #D4AF37; }
-
-        .breadcrumb-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 1.5rem;
-          gap: 1rem;
-          flex-wrap: wrap;
-        }
-
-        .project-actions {
-          display: flex;
-          gap: 0.5rem;
-        }
-
-        .btn-action {
-          background: #FFFFFF;
-          border: 1px solid #EEF0F4;
-          color: #0B1320;
-          padding: 0.5rem 0.9rem;
-          border-radius: 8px;
-          font-size: 0.85rem;
-          font-weight: 500;
-          transition: all 0.15s;
-          cursor: pointer;
-        }
-
-        .btn-action:hover {
-          border-color: #D4AF37;
-          background: #FEFBF2;
-        }
-
-        .btn-action-danger {
-          color: #DC2626;
-        }
-
-        .btn-action-danger:hover {
-          border-color: #DC2626;
-          background: #FEF2F2;
-        }
-
-        /* MODALS */
-        .modal-overlay {
-          position: fixed;
-          inset: 0;
-          background: rgba(11, 19, 32, 0.55);
-          backdrop-filter: blur(4px);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 100;
-          padding: 1rem;
-        }
-
-        .modal {
-          background: #FFFFFF;
-          border-radius: 16px;
-          max-width: 560px;
-          width: 100%;
-          max-height: 90vh;
-          overflow-y: auto;
-          box-shadow: 0 20px 60px rgba(11, 19, 32, 0.3);
-        }
-
-        .modal-small {
-          max-width: 440px;
-        }
-
-        .modal-head {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 1.5rem 1.75rem;
-          border-bottom: 1px solid #EEF0F4;
-        }
-
-        .modal-head h2 {
-          font-size: 1.35rem;
-          font-weight: 600;
-          color: #0B1320;
-        }
-
-        .close-btn {
-          background: transparent;
-          border: none;
-          color: #687085;
-          font-size: 1.75rem;
-          line-height: 1;
-          padding: 0;
-          width: 32px;
-          height: 32px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: color 0.2s;
-        }
-
-        .close-btn:hover {
-          color: #0B1320;
-        }
-
-        .modal-form {
-          padding: 1.75rem;
-          display: flex;
-          flex-direction: column;
-          gap: 1rem;
-        }
-
-        .modal-form label {
-          display: flex;
-          flex-direction: column;
-          gap: 0.35rem;
-        }
-
-        .modal-form label span {
-          color: #0B1320;
-          font-size: 0.85rem;
-          font-weight: 500;
-        }
-
-        .modal-form input,
-        .modal-form select,
-        .modal-form textarea {
-          background: #FFFFFF;
-          border: 1px solid #E6E9EF;
-          color: #0B1320;
-          padding: 0.75rem 1rem;
-          border-radius: 8px;
-          font-size: 0.95rem;
-          transition: border-color 0.2s;
-          resize: vertical;
-        }
-
-        .modal-form input:focus,
-        .modal-form select:focus,
-        .modal-form textarea:focus {
-          outline: none;
-          border-color: #D4AF37;
-          box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.12);
-        }
-
-        .row {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 1rem;
-        }
-
-        .modal-actions {
-          display: flex;
-          justify-content: flex-end;
-          gap: 0.75rem;
-          margin-top: 0.5rem;
-        }
-
-        .modal-body-text {
-          padding: 1.25rem 1.75rem;
-          color: #687085;
-          font-size: 0.95rem;
-          line-height: 1.55;
-        }
-
-        .modal-body-text p {
-          margin-bottom: 0.5rem;
-        }
-
-        .modal-body-text strong {
-          color: #DC2626;
-        }
-
-        .btn-primary {
-          background: #D4AF37;
-          color: #0B1320;
-          border: none;
-          padding: 0.8rem 1.5rem;
-          border-radius: 10px;
-          font-weight: 600;
-          font-size: 0.95rem;
-          cursor: pointer;
-          transition: all 0.2s;
-        }
-
-        .btn-primary:hover {
-          background: #E6C14E;
-        }
-
-        .btn-ghost {
-          background: transparent;
-          color: #687085;
-          border: 1px solid #E6E9EF;
-          padding: 0.75rem 1.5rem;
-          border-radius: 10px;
-          font-weight: 500;
-          font-size: 0.95rem;
-          cursor: pointer;
-          transition: all 0.2s;
-        }
-
-        .btn-ghost:hover {
-          background: #F0F2F5;
-          color: #0B1320;
-        }
-
-        .btn-danger {
-          background: #DC2626;
-          color: #FFFFFF;
-          border: none;
-          padding: 0.75rem 1.5rem;
-          border-radius: 10px;
-          font-weight: 600;
-          font-size: 0.95rem;
-          cursor: pointer;
-          transition: all 0.2s;
-        }
-
-        .btn-danger:hover {
-          background: #B91C1C;
-        }
-
-        /* SECTION DIVIDER (dans modal) */
-        .section-divider {
-          margin-top: 1rem;
-          padding-top: 1rem;
-          padding-bottom: 0.25rem;
-          border-top: 1px solid #EEF0F4;
-        }
-        .section-divider span {
-          color: #0B1320;
-          font-size: 0.85rem;
-          font-weight: 600;
-          letter-spacing: 0.05em;
-        }
-
-        /* CARD STATUT FONCIER */
-        .land-card {
-          grid-column: 1 / -1;
-          background: linear-gradient(135deg, #FFFFFF 0%, #FEFBF2 100%);
-          border: 1px solid rgba(212, 175, 55, 0.25);
-        }
-
-        .land-timeline {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          margin-top: 0.5rem;
-          padding: 0.5rem 0 0.25rem;
-        }
-        .land-step {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 0.4rem;
-          color: #687085;
-          font-size: 0.75rem;
-          font-weight: 500;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          flex-shrink: 0;
-        }
-        .step-dot {
-          width: 14px;
-          height: 14px;
-          border-radius: 50%;
-          background: #FFFFFF;
-          border: 2px solid #D1D5DB;
-          transition: all 0.2s;
-        }
-        .land-step.step-done .step-dot {
-          background: #D4AF37;
-          border-color: #D4AF37;
-        }
-        .land-step.step-done {
-          color: #9a7f2a;
-        }
-        .land-step.step-current .step-dot {
-          background: #FFFFFF;
-          border-color: #D4AF37;
-          box-shadow: 0 0 0 4px rgba(212, 175, 55, 0.2);
-          animation: pulse 2s infinite;
-        }
-        .land-step.step-current {
-          color: #9a7f2a;
-          font-weight: 600;
-        }
-        @keyframes pulse {
-          0%, 100% { box-shadow: 0 0 0 4px rgba(212, 175, 55, 0.2); }
-          50% { box-shadow: 0 0 0 8px rgba(212, 175, 55, 0.1); }
-        }
-        .land-line {
-          flex: 1;
-          height: 2px;
-          background: #E5E7EB;
-          margin: 0 0.25rem;
-          margin-bottom: 1rem;
-          transition: background 0.3s;
-        }
-        .land-line.line-done {
-          background: #D4AF37;
-        }
-
-        .land-notes {
-          margin-top: 1rem;
-          padding-top: 1rem;
-          border-top: 1px solid rgba(212, 175, 55, 0.15);
-        }
-        .land-notes-label {
-          color: #687085;
-          font-size: 0.8rem;
-          font-weight: 500;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-        }
-        .land-notes p {
-          color: #0B1320;
-          font-size: 0.9rem;
-          margin-top: 0.35rem;
-          line-height: 1.5;
-          white-space: pre-wrap;
-        }
-
-        /* ============ SECTION CONTACTS ============ */
-        .contacts-section {
-          display: flex;
-          flex-direction: column;
-          gap: 1.5rem;
-        }
-
-        .contacts-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 1rem;
-          flex-wrap: wrap;
-        }
-
-        .contacts-header-actions {
-          display: flex;
-          gap: 0.75rem;
-          flex-wrap: wrap;
-        }
-
-        .info-banner {
-          margin: 0 1.75rem 0.25rem;
-          padding: 0.75rem 1rem;
-          background: #FEFBF2;
-          border: 1px solid rgba(212, 175, 55, 0.25);
-          border-radius: 10px;
-          font-size: 0.85rem;
-          color: #687085;
-          line-height: 1.5;
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
-          justify-content: space-between;
-          flex-wrap: wrap;
-        }
-        .info-banner strong {
-          color: #0B1320;
-        }
-
-        .link-btn {
-          background: transparent;
-          border: none;
-          color: #9a7f2a;
-          font-size: 0.85rem;
-          font-weight: 500;
-          padding: 0.35rem 0.5rem;
-          cursor: pointer;
-          white-space: nowrap;
-          text-decoration: underline;
-          text-underline-offset: 3px;
-        }
-        .link-btn:hover {
-          color: #D4AF37;
-        }
-
-        .section-title {
-          font-size: 1.2rem;
-          font-weight: 600;
-          color: #0B1320;
-          margin-bottom: 0.25rem;
-        }
-
-        .section-subtitle {
-          color: #687085;
-          font-size: 0.9rem;
-        }
-
-        /* État vide */
-        .empty-state {
-          background: #FFFFFF;
-          border: 1px dashed #E6E9EF;
-          border-radius: 16px;
-          padding: 3rem 2rem;
-          text-align: center;
-        }
-        .empty-icon-big {
-          font-size: 3rem;
-          margin-bottom: 1rem;
-        }
-        .empty-state h4 {
-          color: #0B1320;
-          font-size: 1.1rem;
-          margin-bottom: 0.5rem;
-        }
-        .empty-state p {
-          color: #687085;
-          margin-bottom: 1.5rem;
-          max-width: 380px;
-          margin-left: auto;
-          margin-right: auto;
-        }
-
-        .btn-outline {
-          background: transparent;
-          border: 1.5px solid #D4AF37;
-          color: #9a7f2a;
-          padding: 0.65rem 1.25rem;
-          border-radius: 10px;
-          font-weight: 500;
-          font-size: 0.9rem;
-          cursor: pointer;
-          transition: all 0.2s;
-        }
-        .btn-outline:hover {
-          background: rgba(212, 175, 55, 0.08);
-          color: #9a7f2a;
-        }
-
-        /* Grille de cards contacts */
-        .contacts-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-          gap: 1.25rem;
-        }
-
-        .contact-card {
-          background: #FFFFFF;
-          border: 1px solid #EEF0F4;
-          border-radius: 14px;
-          padding: 1.25rem;
-          transition: all 0.15s;
-          display: flex;
-          flex-direction: column;
-          gap: 0.75rem;
-          position: relative;
-        }
-        .contact-card:hover {
-          border-color: rgba(212, 175, 55, 0.3);
-          box-shadow: 0 4px 12px rgba(11, 19, 32, 0.05);
-        }
-
-        .contact-top {
-          display: flex;
-          gap: 0.85rem;
-          align-items: flex-start;
-        }
-
-        .contact-avatar {
-          width: 44px;
-          height: 44px;
-          background: rgba(212, 175, 55, 0.1);
-          border-radius: 10px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 1.3rem;
-          flex-shrink: 0;
-        }
-
-        .contact-info {
-          flex: 1;
-          min-width: 0;
-        }
-
-        .contact-type-badge {
-          display: inline-block;
-          font-size: 0.7rem;
-          font-weight: 600;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          color: #9a7f2a;
-          background: rgba(212, 175, 55, 0.12);
-          padding: 0.2rem 0.55rem;
-          border-radius: 5px;
-          margin-bottom: 0.35rem;
-        }
-
-        .contact-name {
-          font-size: 1rem;
-          font-weight: 600;
-          color: #0B1320;
-          margin-bottom: 0.15rem;
-          word-break: break-word;
-        }
-
-        .contact-role {
-          font-size: 0.82rem;
-          color: #687085;
-          line-height: 1.35;
-        }
-
-        .contact-menu-wrapper {
-          position: relative;
-          flex-shrink: 0;
-        }
-
-        .contact-details {
-          display: flex;
-          flex-direction: column;
-          gap: 0.5rem;
-          padding-top: 0.75rem;
-          border-top: 1px solid #F3F4F6;
-        }
-
-        .detail-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: baseline;
-          gap: 0.75rem;
-          font-size: 0.85rem;
-        }
-
-        .detail-label {
-          color: #687085;
-          font-weight: 500;
-          flex-shrink: 0;
-        }
-
-        .detail-value {
-          color: #0B1320;
-          text-align: right;
-          word-break: break-word;
-        }
-
-        .detail-link {
-          color: #9a7f2a;
-          text-decoration: none;
-        }
-        .detail-link:hover {
-          text-decoration: underline;
-        }
-
-        .whatsapp-link {
-          display: inline-flex;
-          align-items: center;
-          gap: 0.35rem;
-          color: #25D366;
-        }
-        .whatsapp-link:hover {
-          color: #128C7E;
-          text-decoration: underline;
-        }
-        .wa-icon {
-          font-size: 0.9rem;
-        }
-
-        /* ============ SECTION BUDGET & COÛTS ============ */
-        .budget-section {
-          display: flex;
-          flex-direction: column;
-          gap: 1.5rem;
-        }
-
-        .budget-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 1rem;
-          flex-wrap: wrap;
-        }
-
-        .budget-header-actions {
-          display: flex;
-          gap: 0.75rem;
-          flex-wrap: wrap;
-        }
-
-        /* Barre de progression vs budget cible */
-        .budget-progress-card {
-          background: #FFFFFF;
-          border: 1px solid #EEF0F4;
-          border-radius: 14px;
-          padding: 1.25rem 1.5rem;
-          display: flex;
-          flex-direction: column;
-          gap: 0.75rem;
-        }
-        .progress-top {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-        }
+        .breadcrumb-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; gap: 1rem; flex-wrap: wrap; }
+        .project-actions { display: flex; gap: 0.5rem; }
+        .btn-action { background: #FFFFFF; border: 1px solid #EEF0F4; color: #0B1320; padding: 0.5rem 0.9rem; border-radius: 8px; font-size: 0.85rem; font-weight: 500; transition: all 0.15s; cursor: pointer; }
+        .btn-action:hover { border-color: #D4AF37; background: #FEFBF2; }
+        .btn-action-danger { color: #DC2626; }
+        .btn-action-danger:hover { border-color: #DC2626; background: #FEF2F2; }
+        .modal-overlay { position: fixed; inset: 0; background: rgba(11, 19, 32, 0.55); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 1rem; }
+        .modal { background: #FFFFFF; border-radius: 16px; max-width: 560px; width: 100%; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(11, 19, 32, 0.3); }
+        .modal-small { max-width: 440px; }
+        .modal-head { display: flex; justify-content: space-between; align-items: center; padding: 1.5rem 1.75rem; border-bottom: 1px solid #EEF0F4; }
+        .modal-head h2 { font-size: 1.35rem; font-weight: 600; color: #0B1320; }
+        .close-btn { background: transparent; border: none; color: #687085; font-size: 1.75rem; line-height: 1; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; transition: color 0.2s; }
+        .close-btn:hover { color: #0B1320; }
+        .modal-form { padding: 1.75rem; display: flex; flex-direction: column; gap: 1rem; }
+        .modal-form label { display: flex; flex-direction: column; gap: 0.35rem; }
+        .modal-form label span { color: #0B1320; font-size: 0.85rem; font-weight: 500; }
+        .modal-form input, .modal-form select, .modal-form textarea { background: #FFFFFF; border: 1px solid #E6E9EF; color: #0B1320; padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.95rem; transition: border-color 0.2s; resize: vertical; }
+        .modal-form input:focus, .modal-form select:focus, .modal-form textarea:focus { outline: none; border-color: #D4AF37; box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.12); }
+        .row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 0.5rem; }
+        .modal-body-text { padding: 1.25rem 1.75rem; color: #687085; font-size: 0.95rem; line-height: 1.55; }
+        .modal-body-text p { margin-bottom: 0.5rem; }
+        .modal-body-text strong { color: #DC2626; }
+        .btn-primary { background: #D4AF37; color: #0B1320; border: none; padding: 0.8rem 1.5rem; border-radius: 10px; font-weight: 600; font-size: 0.95rem; cursor: pointer; transition: all 0.2s; }
+        .btn-primary:hover { background: #E6C14E; }
+        .btn-ghost { background: transparent; color: #687085; border: 1px solid #E6E9EF; padding: 0.75rem 1.5rem; border-radius: 10px; font-weight: 500; font-size: 0.95rem; cursor: pointer; transition: all 0.2s; }
+        .btn-ghost:hover { background: #F0F2F5; color: #0B1320; }
+        .btn-danger { background: #DC2626; color: #FFFFFF; border: none; padding: 0.75rem 1.5rem; border-radius: 10px; font-weight: 600; font-size: 0.95rem; cursor: pointer; transition: all 0.2s; }
+        .btn-danger:hover { background: #B91C1C; }
+        .section-divider { margin-top: 1rem; padding-top: 1rem; padding-bottom: 0.25rem; border-top: 1px solid #EEF0F4; }
+        .section-divider span { color: #0B1320; font-size: 0.85rem; font-weight: 600; letter-spacing: 0.05em; }
+        .land-card { grid-column: 1 / -1; background: linear-gradient(135deg, #FFFFFF 0%, #FEFBF2 100%); border: 1px solid rgba(212, 175, 55, 0.25); }
+        .land-timeline { display: flex; align-items: center; justify-content: space-between; margin-top: 0.5rem; padding: 0.5rem 0 0.25rem; }
+        .land-step { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; color: #687085; font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; flex-shrink: 0; }
+        .step-dot { width: 14px; height: 14px; border-radius: 50%; background: #FFFFFF; border: 2px solid #D1D5DB; transition: all 0.2s; }
+        .land-step.step-done .step-dot { background: #D4AF37; border-color: #D4AF37; }
+        .land-step.step-done { color: #9a7f2a; }
+        .land-step.step-current .step-dot { background: #FFFFFF; border-color: #D4AF37; box-shadow: 0 0 0 4px rgba(212, 175, 55, 0.2); animation: pulse 2s infinite; }
+        .land-step.step-current { color: #9a7f2a; font-weight: 600; }
+        @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 4px rgba(212, 175, 55, 0.2); } 50% { box-shadow: 0 0 0 8px rgba(212, 175, 55, 0.1); } }
+        .land-line { flex: 1; height: 2px; background: #E5E7EB; margin: 0 0.25rem; margin-bottom: 1rem; transition: background 0.3s; }
+        .land-line.line-done { background: #D4AF37; }
+        .land-notes { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(212, 175, 55, 0.15); }
+        .land-notes-label { color: #687085; font-size: 0.8rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
+        .land-notes p { color: #0B1320; font-size: 0.9rem; margin-top: 0.35rem; line-height: 1.5; white-space: pre-wrap; }
+        .contacts-section { display: flex; flex-direction: column; gap: 1.5rem; }
+        .contacts-header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
+        .contacts-header-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+        .info-banner { margin: 0 1.75rem 0.25rem; padding: 0.75rem 1rem; background: #FEFBF2; border: 1px solid rgba(212, 175, 55, 0.25); border-radius: 10px; font-size: 0.85rem; color: #687085; line-height: 1.5; display: flex; align-items: center; gap: 0.75rem; justify-content: space-between; flex-wrap: wrap; }
+        .info-banner strong { color: #0B1320; }
+        .link-btn { background: transparent; border: none; color: #9a7f2a; font-size: 0.85rem; font-weight: 500; padding: 0.35rem 0.5rem; cursor: pointer; white-space: nowrap; text-decoration: underline; text-underline-offset: 3px; }
+        .link-btn:hover { color: #D4AF37; }
+        .section-title { font-size: 1.2rem; font-weight: 600; color: #0B1320; margin-bottom: 0.25rem; }
+        .section-subtitle { color: #687085; font-size: 0.9rem; }
+        .empty-state { background: #FFFFFF; border: 1px dashed #E6E9EF; border-radius: 16px; padding: 3rem 2rem; text-align: center; }
+        .empty-icon-big { font-size: 3rem; margin-bottom: 1rem; }
+        .empty-state h4 { color: #0B1320; font-size: 1.1rem; margin-bottom: 0.5rem; }
+        .empty-state p { color: #687085; margin-bottom: 1.5rem; max-width: 380px; margin-left: auto; margin-right: auto; }
+        .btn-outline { background: transparent; border: 1.5px solid #D4AF37; color: #9a7f2a; padding: 0.65rem 1.25rem; border-radius: 10px; font-weight: 500; font-size: 0.9rem; cursor: pointer; transition: all 0.2s; }
+        .btn-outline:hover { background: rgba(212, 175, 55, 0.08); color: #9a7f2a; }
+        .contacts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 1.25rem; }
+        .contact-card { background: #FFFFFF; border: 1px solid #EEF0F4; border-radius: 14px; padding: 1.25rem; transition: all 0.15s; display: flex; flex-direction: column; gap: 0.75rem; position: relative; }
+        .contact-card:hover { border-color: rgba(212, 175, 55, 0.3); box-shadow: 0 4px 12px rgba(11, 19, 32, 0.05); }
+        .contact-top { display: flex; gap: 0.85rem; align-items: flex-start; }
+        .contact-avatar { width: 44px; height: 44px; background: rgba(212, 175, 55, 0.1); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0; }
+        .contact-info { flex: 1; min-width: 0; }
+        .contact-type-badge { display: inline-block; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #9a7f2a; background: rgba(212, 175, 55, 0.12); padding: 0.2rem 0.55rem; border-radius: 5px; margin-bottom: 0.35rem; }
+        .contact-name { font-size: 1rem; font-weight: 600; color: #0B1320; margin-bottom: 0.15rem; word-break: break-word; }
+        .contact-role { font-size: 0.82rem; color: #687085; line-height: 1.35; }
+        .contact-menu-wrapper { position: relative; flex-shrink: 0; }
+        .contact-details { display: flex; flex-direction: column; gap: 0.5rem; padding-top: 0.75rem; border-top: 1px solid #F3F4F6; }
+        .detail-row { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; font-size: 0.85rem; }
+        .detail-label { color: #687085; font-weight: 500; flex-shrink: 0; }
+        .detail-value { color: #0B1320; text-align: right; word-break: break-word; }
+        .detail-link { color: #9a7f2a; text-decoration: none; }
+        .detail-link:hover { text-decoration: underline; }
+        .whatsapp-link { display: inline-flex; align-items: center; gap: 0.35rem; color: #25D366; }
+        .whatsapp-link:hover { color: #128C7E; text-decoration: underline; }
+        .wa-icon { font-size: 0.9rem; }
+        .budget-section { display: flex; flex-direction: column; gap: 1.5rem; }
+        .budget-header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
+        .budget-header-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+        .budget-progress-card { background: #FFFFFF; border: 1px solid #EEF0F4; border-radius: 14px; padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 0.75rem; }
+        .progress-top { display: flex; justify-content: space-between; align-items: flex-start; }
         .progress-right { text-align: right; }
-        .progress-label {
-          display: block;
-          font-size: 0.7rem;
-          color: #687085;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          font-weight: 500;
-          margin-bottom: 0.2rem;
-        }
-        .progress-target {
-          display: block;
-          font-size: 1.1rem;
-          font-weight: 600;
-          color: #0B1320;
-        }
-        .progress-used {
-          display: block;
-          font-size: 1.1rem;
-          font-weight: 600;
-          color: #D4AF37;
-        }
+        .progress-label { display: block; font-size: 0.7rem; color: #687085; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 500; margin-bottom: 0.2rem; }
+        .progress-target { display: block; font-size: 1.1rem; font-weight: 600; color: #0B1320; }
+        .progress-used { display: block; font-size: 1.1rem; font-weight: 600; color: #D4AF37; }
         .progress-used.over { color: #DC2626; }
-        .progress-bar {
-          width: 100%;
-          height: 10px;
-          background: #F3F4F6;
-          border-radius: 5px;
-          overflow: hidden;
-          position: relative;
-          display: flex;
-        }
-        .progress-fill {
-          height: 100%;
-          background: linear-gradient(90deg, #D4AF37 0%, #E6C14E 100%);
-          border-radius: 5px;
-          transition: width 0.4s ease;
-        }
-        .progress-fill.over {
-          background: linear-gradient(90deg, #D4AF37 0%, #DC2626 100%);
-        }
-        .progress-over-indicator {
-          height: 100%;
-          background: repeating-linear-gradient(
-            45deg,
-            #DC2626,
-            #DC2626 6px,
-            #B91C1C 6px,
-            #B91C1C 12px
-          );
-        }
-        .progress-bottom {
-          display: flex;
-          justify-content: space-between;
-          font-size: 0.85rem;
-          color: #687085;
-        }
+        .progress-bar { width: 100%; height: 10px; background: #F3F4F6; border-radius: 5px; overflow: hidden; position: relative; display: flex; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, #D4AF37 0%, #E6C14E 100%); border-radius: 5px; transition: width 0.4s ease; }
+        .progress-fill.over { background: linear-gradient(90deg, #D4AF37 0%, #DC2626 100%); }
+        .progress-over-indicator { height: 100%; background: repeating-linear-gradient(45deg, #DC2626, #DC2626 6px, #B91C1C 6px, #B91C1C 12px); }
+        .progress-bottom { display: flex; justify-content: space-between; font-size: 0.85rem; color: #687085; }
         .progress-bottom strong { color: #0B1320; }
         .over-text strong { color: #DC2626; }
-
-        /* Layout principal : donut à gauche, liste à droite */
-        .budget-layout {
-          display: grid;
-          grid-template-columns: 320px 1fr;
-          gap: 1.5rem;
-          align-items: flex-start;
-        }
-        @media (max-width: 900px) {
-          .budget-layout {
-            grid-template-columns: 1fr;
-          }
-        }
-
-        /* Donut */
-        .donut-card {
-          background: #FFFFFF;
-          border: 1px solid #EEF0F4;
-          border-radius: 14px;
-          padding: 1.5rem;
-          position: sticky;
-          top: 1.5rem;
-        }
-        .donut-title {
-          font-size: 0.85rem;
-          font-weight: 600;
-          color: #0B1320;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          margin-bottom: 1rem;
-        }
-        .donut-wrapper {
-          position: relative;
-          width: 200px;
-          height: 200px;
-          margin: 0 auto 1.25rem;
-        }
-        .donut-svg {
-          width: 100%;
-          height: 100%;
-          transform: rotate(-90deg);
-        }
-        .donut-center {
-          position: absolute;
-          inset: 0;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          text-align: center;
-        }
-        .donut-center-value {
-          font-size: 1.1rem;
-          font-weight: 600;
-          color: #0B1320;
-        }
-        .donut-center-label {
-          font-size: 0.75rem;
-          color: #687085;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-        }
-        .donut-legend {
-          list-style: none;
-          display: flex;
-          flex-direction: column;
-          gap: 0.6rem;
-        }
-        .donut-legend li {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          font-size: 0.85rem;
-        }
-        .legend-dot {
-          width: 10px;
-          height: 10px;
-          border-radius: 50%;
-          flex-shrink: 0;
-        }
-        .legend-label {
-          flex: 1;
-          color: #0B1320;
-        }
-        .legend-value {
-          color: #687085;
-          font-weight: 500;
-        }
-
-        /* Liste des coûts */
-        .costs-list {
-          display: flex;
-          flex-direction: column;
-          gap: 1.25rem;
-        }
-        .cost-category {
-          background: #FFFFFF;
-          border: 1px solid #EEF0F4;
-          border-radius: 14px;
-          /* overflow: hidden retiré pour ne pas couper le menu dropdown */
-        }
-        .cat-header {
-          display: flex;
-          justify-content: space-between;
-          /* arrondi du haut uniquement */
-          border-top-left-radius: 14px;
-          border-top-right-radius: 14px;
-          align-items: center;
-          padding: 0.85rem 1.25rem;
-          background: #F7F8FA;
-          border-bottom: 1px solid #EEF0F4;
-        }
-        .cat-header h4 {
-          font-size: 0.9rem;
-          font-weight: 600;
-          color: #0B1320;
-          display: flex;
-          align-items: center;
-          gap: 0.6rem;
-          margin: 0;
-        }
-        .cat-color {
-          width: 10px;
-          height: 10px;
-          border-radius: 50%;
-        }
-        .cat-total {
-          font-weight: 600;
-          color: #0B1320;
-        }
-        .cost-items {
-          display: flex;
-          flex-direction: column;
-        }
-        .cost-item {
-          display: flex;
-          align-items: center;
-          gap: 1rem;
-          padding: 0.85rem 1.25rem;
-          border-bottom: 1px solid #F3F4F6;
-        }
-        .cost-item:last-child {
-          border-bottom: none;
-          border-bottom-left-radius: 14px;
-          border-bottom-right-radius: 14px;
-        }
+        .budget-layout { display: grid; grid-template-columns: 320px 1fr; gap: 1.5rem; align-items: flex-start; }
+        @media (max-width: 900px) { .budget-layout { grid-template-columns: 1fr; } }
+        .donut-card { background: #FFFFFF; border: 1px solid #EEF0F4; border-radius: 14px; padding: 1.5rem; position: sticky; top: 1.5rem; }
+        .donut-title { font-size: 0.85rem; font-weight: 600; color: #0B1320; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 1rem; }
+        .donut-wrapper { position: relative; width: 200px; height: 200px; margin: 0 auto 1.25rem; }
+        .donut-svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+        .donut-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+        .donut-center-value { font-size: 1.1rem; font-weight: 600; color: #0B1320; }
+        .donut-center-label { font-size: 0.75rem; color: #687085; text-transform: uppercase; letter-spacing: 0.05em; }
+        .donut-legend { list-style: none; display: flex; flex-direction: column; gap: 0.6rem; }
+        .donut-legend li { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; }
+        .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+        .legend-label { flex: 1; color: #0B1320; }
+        .legend-value { color: #687085; font-weight: 500; }
+        .costs-list { display: flex; flex-direction: column; gap: 1.25rem; }
+        .cost-category { background: #FFFFFF; border: 1px solid #EEF0F4; border-radius: 14px; }
+        .cat-header { display: flex; justify-content: space-between; border-top-left-radius: 14px; border-top-right-radius: 14px; align-items: center; padding: 0.85rem 1.25rem; background: #F7F8FA; border-bottom: 1px solid #EEF0F4; }
+        .cat-header h4 { font-size: 0.9rem; font-weight: 600; color: #0B1320; display: flex; align-items: center; gap: 0.6rem; margin: 0; }
+        .cat-color { width: 10px; height: 10px; border-radius: 50%; }
+        .cat-total { font-weight: 600; color: #0B1320; }
+        .cost-items { display: flex; flex-direction: column; }
+        .cost-item { display: flex; align-items: center; gap: 1rem; padding: 0.85rem 1.25rem; border-bottom: 1px solid #F3F4F6; }
+        .cost-item:last-child { border-bottom: none; border-bottom-left-radius: 14px; border-bottom-right-radius: 14px; }
         .cost-item:hover { background: #FAFBFC; }
-
-        .cost-main {
-          flex: 1;
-          min-width: 0;
-        }
-        .cost-label-row {
-          display: flex;
-          align-items: center;
-          gap: 0.6rem;
-          margin-bottom: 0.2rem;
-        }
-        .cost-label {
-          font-weight: 500;
-          color: #0B1320;
-          font-size: 0.95rem;
-        }
-        .cost-status {
-          display: inline-block;
-          font-size: 0.7rem;
-          font-weight: 600;
-          padding: 0.15rem 0.5rem;
-          border-radius: 5px;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-        }
-        .cost-status.status-estime {
-          background: rgba(107, 114, 128, 0.12);
-          color: #4B5563;
-        }
-        .cost-status.status-engage {
-          background: rgba(212, 175, 55, 0.15);
-          color: #9a7f2a;
-        }
-        .cost-status.status-paye {
-          background: rgba(34, 197, 94, 0.12);
-          color: #15803d;
-        }
-        .cost-meta {
-          display: flex;
-          gap: 0.6rem;
-          flex-wrap: wrap;
-          font-size: 0.78rem;
-          color: #687085;
-        }
-        .cost-tag {
-          background: #F3F4F6;
-          padding: 0.1rem 0.45rem;
-          border-radius: 4px;
-          font-weight: 500;
-        }
-        .cost-contact {
-          color: #9a7f2a;
-          font-weight: 500;
-        }
-        .cost-date {
-          color: #687085;
-        }
-
-        .cost-right {
-          text-align: right;
-          flex-shrink: 0;
-        }
-        .cost-amount {
-          display: block;
-          font-weight: 600;
-          color: #0B1320;
-          font-size: 0.95rem;
-        }
-        .cost-amount-eur {
-          display: block;
-          font-size: 0.75rem;
-          color: #687085;
-        }
-        .progress-eur {
-          color: #687085;
-          font-size: 0.85rem;
-          font-weight: 400;
-          margin-left: 0.25rem;
-        }
-
-        .cost-menu-wrapper {
-          position: relative;
-          flex-shrink: 0;
-        }
-
-        /* Preview calcul */
-        .calc-preview {
-          background: #FEFBF2;
-          border: 1px solid rgba(212, 175, 55, 0.25);
-          border-radius: 8px;
-          padding: 0.75rem 1rem;
-          font-size: 0.85rem;
-          color: #687085;
-        }
-        .calc-preview strong {
-          color: #9a7f2a;
-          font-size: 1rem;
-        }
-
-        /* Catalogue */
-        .catalog-list {
-          padding: 1.25rem 1.75rem 1.75rem;
-          display: flex;
-          flex-direction: column;
-          gap: 1.25rem;
-        }
-        .catalog-category {
-          display: flex;
-          flex-direction: column;
-          gap: 0.6rem;
-        }
-        .catalog-cat-title {
-          font-size: 0.85rem;
-          font-weight: 600;
-          color: #0B1320;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          margin: 0;
-        }
-        .catalog-items {
-          display: flex;
-          flex-direction: column;
-          gap: 0.35rem;
-        }
-        .catalog-item {
-          background: #F7F8FA;
-          border: 1px solid transparent;
-          border-radius: 10px;
-          padding: 0.75rem 1rem;
-          display: flex;
-          align-items: center;
-          gap: 0.85rem;
-          cursor: pointer;
-          transition: all 0.15s;
-          text-align: left;
-          width: 100%;
-        }
-        .catalog-item:hover {
-          background: #FEFBF2;
-          border-color: rgba(212, 175, 55, 0.3);
-        }
-        .catalog-icon {
-          font-size: 1.4rem;
-          flex-shrink: 0;
-        }
-        .catalog-text {
-          flex: 1;
-          min-width: 0;
-        }
-        .catalog-label {
-          font-weight: 500;
-          color: #0B1320;
-          font-size: 0.92rem;
-          margin-bottom: 0.1rem;
-        }
-        .catalog-description {
-          font-size: 0.8rem;
-          color: #687085;
-        }
-        .catalog-hint {
-          font-size: 0.75rem;
-          color: #9a7f2a;
-          margin-top: 0.2rem;
-        }
-        .catalog-pct {
-          background: rgba(212, 175, 55, 0.15);
-          color: #9a7f2a;
-          font-weight: 600;
-          font-size: 0.8rem;
-          padding: 0.25rem 0.55rem;
-          border-radius: 6px;
-          flex-shrink: 0;
-        }
-
-        /* ============ MODE SPLIT (Prix d'achat Maroc) ============ */
-        .mode-toggle {
-          display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 0.35rem;
-        }
-        @media (max-width: 640px) {
-          .mode-toggle {
-            grid-template-columns: repeat(2, 1fr);
-          }
-        }
-        .mode-toggle .toggle-btn {
-          font-size: 0.78rem;
-          padding: 0.6rem 0.4rem;
-          text-align: center;
-        }
-
-        .split-banner {
-          background: #FEFBF2;
-          border: 1px solid rgba(212, 175, 55, 0.3);
-          border-radius: 10px;
-          padding: 0.75rem 1rem;
-          font-size: 0.85rem;
-          color: #687085;
-          line-height: 1.5;
-        }
-        .split-banner strong {
-          color: #9a7f2a;
-        }
-
-        .field-hint {
-          display: block;
-          margin-top: 0.25rem;
-          font-size: 0.75rem;
-          color: #687085;
-          font-style: italic;
-        }
-
-        .split-preview {
-          display: flex;
-          flex-direction: column;
-          gap: 0.35rem;
-        }
-        .split-line {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          font-size: 0.85rem;
-        }
-        .split-line.cash-line {
-          color: #15803d;
-        }
-        .split-line.split-total {
-          padding-top: 0.5rem;
-          border-top: 1px dashed rgba(212, 175, 55, 0.4);
-          margin-top: 0.25rem;
-        }
-        .split-line.split-total strong {
-          color: #9a7f2a;
-          font-size: 1.05rem;
-        }
-
-        /* Sous-lignes dans la liste (prix d'achat en mode split) */
-        .split-sublines {
-          display: flex;
-          flex-direction: column;
-          gap: 0.2rem;
-          margin-top: 0.5rem;
-          padding: 0.5rem 0.75rem;
-          background: #FAFBFC;
-          border-radius: 6px;
-          border-left: 2px solid #D4AF37;
-        }
-        .subline {
-          display: flex;
-          justify-content: space-between;
-          font-size: 0.8rem;
-          color: #687085;
-        }
-        .subline-cash {
-          color: #15803d;
-        }
-        .subline-label {
-          flex: 1;
-        }
-        .subline-value {
-          font-weight: 500;
-        }
-
-        /* Tag CASH */
-        .cash-tag {
-          display: inline-block;
-          background: rgba(34, 197, 94, 0.12);
-          color: #15803d;
-          font-size: 0.68rem;
-          font-weight: 700;
-          padding: 0.15rem 0.45rem;
-          border-radius: 4px;
-          letter-spacing: 0.05em;
-        }
-
-        /* Sélecteur de base officielle / réelle */
-        .base-ref-selector {
-          display: flex;
-          flex-wrap: wrap;
-          align-items: center;
-          gap: 0.75rem;
-          background: #FEFBF2;
-          border: 1px solid rgba(212, 175, 55, 0.25);
-          border-radius: 10px;
-          padding: 0.75rem 1rem;
-        }
-        .base-ref-label {
-          font-size: 0.82rem;
-          color: #687085;
-          font-weight: 500;
-        }
-        .base-ref-option {
-          display: flex;
-          align-items: center;
-          gap: 0.4rem;
-          font-size: 0.85rem;
-          color: #0B1320;
-          cursor: pointer;
-        }
-        .base-ref-option input[type="radio"] {
-          margin: 0;
-          cursor: pointer;
-          accent-color: #D4AF37;
-        }
-        .base-ref-option strong {
-          color: #9a7f2a;
-        }
-        .base-ref-indicator {
-          color: #9a7f2a;
-          font-weight: 500;
-        }
-
-        .detail-highlight {
-          color: #D4AF37;
-          font-weight: 600;
-          background: rgba(212, 175, 55, 0.1);
-          padding: 0.15rem 0.45rem;
-          border-radius: 4px;
-        }
-
-        .detail-mono {
-          font-family: "SF Mono", Menlo, monospace;
-          font-size: 0.78rem;
-        }
-
-        .contact-notes {
-          padding-top: 0.5rem;
-          border-top: 1px dashed #F3F4F6;
-          margin-top: 0.25rem;
-        }
-        .contact-notes p {
-          font-size: 0.82rem;
-          color: #687085;
-          font-style: italic;
-          line-height: 1.45;
-          white-space: pre-wrap;
-        }
-
-        /* Toggle historique des échanges */
-        .toggle-interactions {
-          margin-top: 0.5rem;
-          background: transparent;
-          border: none;
-          color: #687085;
-          font-size: 0.82rem;
-          font-weight: 500;
-          padding: 0.5rem 0;
-          text-align: left;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          border-top: 1px solid #F3F4F6;
-          transition: color 0.15s;
-        }
-        .toggle-interactions:hover {
-          color: #0B1320;
-        }
-        .interactions-count {
-          background: #D4AF37;
-          color: #0B1320;
-          font-size: 0.7rem;
-          font-weight: 600;
-          padding: 0.1rem 0.4rem;
-          border-radius: 10px;
-          min-width: 20px;
-          text-align: center;
-        }
-
-        .interactions-section {
-          display: flex;
-          flex-direction: column;
-          gap: 0.75rem;
-        }
-
-        .interactions-header {
-          display: flex;
-          justify-content: flex-end;
-        }
-
-        .btn-mini {
-          padding: 0.4rem 0.85rem;
-          font-size: 0.8rem;
-          border-radius: 8px;
-        }
-
-        .interaction-form {
-          background: #F7F8FA;
-          border: 1px solid #EEF0F4;
-          border-radius: 10px;
-          padding: 1rem;
-          display: flex;
-          flex-direction: column;
-          gap: 0.75rem;
-        }
-
-        .interaction-form .row {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 0.75rem;
-        }
-
-        .interaction-form label {
-          display: flex;
-          flex-direction: column;
-          gap: 0.3rem;
-        }
-        .interaction-form label span {
-          font-size: 0.8rem;
-          color: #0B1320;
-          font-weight: 500;
-        }
-        .interaction-form input,
-        .interaction-form select,
-        .interaction-form textarea {
-          background: #FFFFFF;
-          border: 1px solid #E6E9EF;
-          padding: 0.5rem 0.75rem;
-          border-radius: 7px;
-          font-size: 0.85rem;
-          color: #0B1320;
-          font-family: inherit;
-        }
-        .interaction-form input:focus,
-        .interaction-form select:focus,
-        .interaction-form textarea:focus {
-          outline: none;
-          border-color: #D4AF37;
-        }
-
-        .interaction-form-actions {
-          display: flex;
-          justify-content: flex-end;
-          gap: 0.5rem;
-        }
-
-        .empty-interactions {
-          color: #687085;
-          font-size: 0.85rem;
-          font-style: italic;
-          text-align: center;
-          padding: 1rem;
-        }
-
-        .interactions-list {
-          list-style: none;
-          display: flex;
-          flex-direction: column;
-          gap: 0.65rem;
-        }
-
-        .interaction-item {
-          background: #F7F8FA;
-          border-left: 3px solid #D4AF37;
-          border-radius: 6px;
-          padding: 0.6rem 0.85rem;
-          position: relative;
-        }
-
-        .interaction-header {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          margin-bottom: 0.25rem;
-        }
-
-        .interaction-type {
-          font-size: 0.78rem;
-          font-weight: 600;
-          color: #9a7f2a;
-        }
-
-        .interaction-date {
-          font-size: 0.75rem;
-          color: #687085;
-          flex: 1;
-        }
-
-        .interaction-delete {
-          background: transparent;
-          border: none;
-          color: #687085;
-          width: 20px;
-          height: 20px;
-          border-radius: 4px;
-          font-size: 1rem;
-          line-height: 1;
-          cursor: pointer;
-          transition: all 0.15s;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-        .interaction-delete:hover {
-          background: #FEF2F2;
-          color: #DC2626;
-        }
-
-        .interaction-subject {
-          font-size: 0.85rem;
-          color: #0B1320;
-          font-weight: 500;
-          margin-bottom: 0.15rem;
-        }
-        .interaction-notes {
-          font-size: 0.8rem;
-          color: #687085;
-          line-height: 1.45;
-          white-space: pre-wrap;
-        }
-
-        /* Menu dropdown et trigger (réutilisation des styles) */
-        .menu-trigger {
-          background: transparent;
-          border: none;
-          color: #687085;
-          width: 30px;
-          height: 30px;
-          border-radius: 6px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-          transition: all 0.15s;
-        }
-        .menu-trigger:hover {
-          background: #F0F2F5;
-          color: #0B1320;
-        }
-
-        .menu-backdrop {
-          position: fixed;
-          inset: 0;
-          z-index: 40;
-        }
-
-        .menu-dropdown {
-          position: absolute;
-          top: calc(100% + 4px);
-          right: 0;
-          background: #FFFFFF;
-          border: 1px solid #EEF0F4;
-          border-radius: 10px;
-          box-shadow: 0 8px 24px rgba(11, 19, 32, 0.12);
-          z-index: 50;
-          min-width: 160px;
-          overflow: hidden;
-        }
-
-        .menu-item {
-          display: block;
-          width: 100%;
-          background: transparent;
-          border: none;
-          padding: 0.7rem 1rem;
-          font-size: 0.88rem;
-          color: #0B1320;
-          text-align: left;
-          cursor: pointer;
-          transition: background 0.15s;
-        }
-        .menu-item:hover {
-          background: #F7F8FA;
-        }
-        .menu-item-danger {
-          color: #DC2626;
-        }
-        .menu-item-danger:hover {
-          background: #FEF2F2;
-        }
-
-        /* Toggle commission % vs montant */
-        .commission-toggle {
-          display: flex;
-          gap: 0.5rem;
-          background: #F7F8FA;
-          padding: 0.35rem;
-          border-radius: 10px;
-          border: 1px solid #EEF0F4;
-        }
-        .toggle-btn {
-          flex: 1;
-          background: transparent;
-          border: none;
-          padding: 0.55rem 0.75rem;
-          border-radius: 7px;
-          font-size: 0.82rem;
-          font-weight: 500;
-          color: #687085;
-          cursor: pointer;
-          transition: all 0.15s;
-        }
-        .toggle-btn:hover {
-          color: #0B1320;
-        }
-        .toggle-active {
-          background: #FFFFFF;
-          color: #0B1320;
-          font-weight: 600;
-          box-shadow: 0 1px 3px rgba(11, 19, 32, 0.08);
-        }
-
-        .page-head {
-          display: flex; justify-content: space-between; align-items: flex-start;
-          margin-bottom: 2rem; flex-wrap: wrap; gap: 1.5rem;
-        }
-        .project-meta {
-          display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.65rem;
-        }
-        .status-badge {
-          padding: 0.25rem 0.75rem; border-radius: 6px;
-          font-size: 0.75rem; font-weight: 600;
-          text-transform: uppercase; letter-spacing: 0.05em;
-          background: rgba(212, 175, 55, 0.15); color: #9a7f2a;
-        }
+        .cost-main { flex: 1; min-width: 0; }
+        .cost-label-row { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.2rem; flex-wrap: wrap; }
+        .cost-label { font-weight: 500; color: #0B1320; font-size: 0.95rem; }
+        .cost-status { display: inline-block; font-size: 0.7rem; font-weight: 600; padding: 0.15rem 0.5rem; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.05em; }
+        .cost-status.status-estime { background: rgba(107, 114, 128, 0.12); color: #4B5563; }
+        .cost-status.status-engage { background: rgba(212, 175, 55, 0.15); color: #9a7f2a; }
+        .cost-status.status-paye { background: rgba(34, 197, 94, 0.12); color: #15803d; }
+        .currency-tag { display: inline-block; background: rgba(59, 130, 246, 0.1); color: #1d4ed8; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 5px; letter-spacing: 0.05em; }
+        .cost-meta { display: flex; gap: 0.6rem; flex-wrap: wrap; font-size: 0.78rem; color: #687085; }
+        .cost-tag { background: #F3F4F6; padding: 0.1rem 0.45rem; border-radius: 4px; font-weight: 500; }
+        .cost-contact { color: #9a7f2a; font-weight: 500; }
+        .cost-date { color: #687085; }
+        .cost-right { text-align: right; flex-shrink: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+        .cost-amount { display: block; font-weight: 600; color: #0B1320; font-size: 0.95rem; }
+        .cost-amount-converted { display: block; font-size: 0.78rem; color: #1d4ed8; font-weight: 500; }
+        .cost-amount-eur { display: block; font-size: 0.75rem; color: #687085; }
+        .progress-eur { color: #687085; font-size: 0.85rem; font-weight: 400; margin-left: 0.25rem; }
+        .cost-menu-wrapper { position: relative; flex-shrink: 0; }
+        .calc-preview { background: #FEFBF2; border: 1px solid rgba(212, 175, 55, 0.25); border-radius: 8px; padding: 0.75rem 1rem; font-size: 0.85rem; color: #687085; }
+        .calc-preview strong { color: #9a7f2a; font-size: 1rem; }
+        .eur-preview { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+        .eur-preview .preview-total { color: #9a7f2a; font-size: 1.15rem; font-weight: 600; }
+        /* === SÉLECTEUR DE DEVISE === */
+        .currency-selector { display: flex; align-items: center; gap: 0.5rem; background: #F7F8FA; padding: 0.4rem; border-radius: 10px; border: 1px solid #EEF0F4; flex-wrap: wrap; }
+        .currency-selector-label { font-size: 0.8rem; color: #687085; font-weight: 500; padding: 0 0.5rem; }
+        .catalog-list { padding: 1.25rem 1.75rem 1.75rem; display: flex; flex-direction: column; gap: 1.25rem; }
+        .catalog-category { display: flex; flex-direction: column; gap: 0.6rem; }
+        .catalog-cat-title { font-size: 0.85rem; font-weight: 600; color: #0B1320; text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 0.5rem; margin: 0; }
+        .catalog-items { display: flex; flex-direction: column; gap: 0.35rem; }
+        .catalog-item { background: #F7F8FA; border: 1px solid transparent; border-radius: 10px; padding: 0.75rem 1rem; display: flex; align-items: center; gap: 0.85rem; cursor: pointer; transition: all 0.15s; text-align: left; width: 100%; }
+        .catalog-item:hover { background: #FEFBF2; border-color: rgba(212, 175, 55, 0.3); }
+        .catalog-icon { font-size: 1.4rem; flex-shrink: 0; }
+        .catalog-text { flex: 1; min-width: 0; }
+        .catalog-label { font-weight: 500; color: #0B1320; font-size: 0.92rem; margin-bottom: 0.1rem; }
+        .catalog-description { font-size: 0.8rem; color: #687085; }
+        .catalog-hint { font-size: 0.75rem; color: #9a7f2a; margin-top: 0.2rem; }
+        .catalog-pct { background: rgba(212, 175, 55, 0.15); color: #9a7f2a; font-weight: 600; font-size: 0.8rem; padding: 0.25rem 0.55rem; border-radius: 6px; flex-shrink: 0; }
+        .mode-toggle { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.35rem; }
+        @media (max-width: 640px) { .mode-toggle { grid-template-columns: repeat(2, 1fr); } }
+        .mode-toggle .toggle-btn { font-size: 0.78rem; padding: 0.6rem 0.4rem; text-align: center; }
+        .split-banner { background: #FEFBF2; border: 1px solid rgba(212, 175, 55, 0.3); border-radius: 10px; padding: 0.75rem 1rem; font-size: 0.85rem; color: #687085; line-height: 1.5; }
+        .split-banner strong { color: #9a7f2a; }
+        .field-hint { display: block; margin-top: 0.25rem; font-size: 0.75rem; color: #687085; font-style: italic; }
+        .split-preview { display: flex; flex-direction: column; gap: 0.35rem; }
+        .split-line { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; }
+        .split-line.cash-line { color: #15803d; }
+        .split-line.split-total { padding-top: 0.5rem; border-top: 1px dashed rgba(212, 175, 55, 0.4); margin-top: 0.25rem; }
+        .split-line.split-total strong { color: #9a7f2a; font-size: 1.05rem; }
+        .split-sublines { display: flex; flex-direction: column; gap: 0.2rem; margin-top: 0.5rem; padding: 0.5rem 0.75rem; background: #FAFBFC; border-radius: 6px; border-left: 2px solid #D4AF37; }
+        .subline { display: flex; justify-content: space-between; font-size: 0.8rem; color: #687085; }
+        .subline-cash { color: #15803d; }
+        .subline-label { flex: 1; }
+        .subline-value { font-weight: 500; }
+        .cash-tag { display: inline-block; background: rgba(34, 197, 94, 0.12); color: #15803d; font-size: 0.68rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; letter-spacing: 0.05em; }
+        .base-ref-selector { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; background: #FEFBF2; border: 1px solid rgba(212, 175, 55, 0.25); border-radius: 10px; padding: 0.75rem 1rem; }
+        .base-ref-label { font-size: 0.82rem; color: #687085; font-weight: 500; }
+        .base-ref-option { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: #0B1320; cursor: pointer; }
+        .base-ref-option input[type="radio"] { margin: 0; cursor: pointer; accent-color: #D4AF37; }
+        .base-ref-option strong { color: #9a7f2a; }
+        .base-ref-indicator { color: #9a7f2a; font-weight: 500; }
+        .detail-highlight { color: #D4AF37; font-weight: 600; background: rgba(212, 175, 55, 0.1); padding: 0.15rem 0.45rem; border-radius: 4px; }
+        .detail-mono { font-family: "SF Mono", Menlo, monospace; font-size: 0.78rem; }
+        .contact-notes { padding-top: 0.5rem; border-top: 1px dashed #F3F4F6; margin-top: 0.25rem; }
+        .contact-notes p { font-size: 0.82rem; color: #687085; font-style: italic; line-height: 1.45; white-space: pre-wrap; }
+        .toggle-interactions { margin-top: 0.5rem; background: transparent; border: none; color: #687085; font-size: 0.82rem; font-weight: 500; padding: 0.5rem 0; text-align: left; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; border-top: 1px solid #F3F4F6; transition: color 0.15s; }
+        .toggle-interactions:hover { color: #0B1320; }
+        .interactions-count { background: #D4AF37; color: #0B1320; font-size: 0.7rem; font-weight: 600; padding: 0.1rem 0.4rem; border-radius: 10px; min-width: 20px; text-align: center; }
+        .interactions-section { display: flex; flex-direction: column; gap: 0.75rem; }
+        .interactions-header { display: flex; justify-content: flex-end; }
+        .btn-mini { padding: 0.4rem 0.85rem; font-size: 0.8rem; border-radius: 8px; }
+        .interaction-form { background: #F7F8FA; border: 1px solid #EEF0F4; border-radius: 10px; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
+        .interaction-form .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+        .interaction-form label { display: flex; flex-direction: column; gap: 0.3rem; }
+        .interaction-form label span { font-size: 0.8rem; color: #0B1320; font-weight: 500; }
+        .interaction-form input, .interaction-form select, .interaction-form textarea { background: #FFFFFF; border: 1px solid #E6E9EF; padding: 0.5rem 0.75rem; border-radius: 7px; font-size: 0.85rem; color: #0B1320; font-family: inherit; }
+        .interaction-form input:focus, .interaction-form select:focus, .interaction-form textarea:focus { outline: none; border-color: #D4AF37; }
+        .interaction-form-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
+        .empty-interactions { color: #687085; font-size: 0.85rem; font-style: italic; text-align: center; padding: 1rem; }
+        .interactions-list { list-style: none; display: flex; flex-direction: column; gap: 0.65rem; }
+        .interaction-item { background: #F7F8FA; border-left: 3px solid #D4AF37; border-radius: 6px; padding: 0.6rem 0.85rem; position: relative; }
+        .interaction-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; }
+        .interaction-type { font-size: 0.78rem; font-weight: 600; color: #9a7f2a; }
+        .interaction-date { font-size: 0.75rem; color: #687085; flex: 1; }
+        .interaction-delete { background: transparent; border: none; color: #687085; width: 20px; height: 20px; border-radius: 4px; font-size: 1rem; line-height: 1; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center; }
+        .interaction-delete:hover { background: #FEF2F2; color: #DC2626; }
+        .interaction-subject { font-size: 0.85rem; color: #0B1320; font-weight: 500; margin-bottom: 0.15rem; }
+        .interaction-notes { font-size: 0.8rem; color: #687085; line-height: 1.45; white-space: pre-wrap; }
+        .menu-trigger { background: transparent; border: none; color: #687085; width: 30px; height: 30px; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.15s; }
+        .menu-trigger:hover { background: #F0F2F5; color: #0B1320; }
+        .menu-backdrop { position: fixed; inset: 0; z-index: 40; }
+        .menu-dropdown { position: absolute; top: calc(100% + 4px); right: 0; background: #FFFFFF; border: 1px solid #EEF0F4; border-radius: 10px; box-shadow: 0 8px 24px rgba(11, 19, 32, 0.12); z-index: 50; min-width: 160px; overflow: hidden; }
+        .menu-item { display: block; width: 100%; background: transparent; border: none; padding: 0.7rem 1rem; font-size: 0.88rem; color: #0B1320; text-align: left; cursor: pointer; transition: background 0.15s; }
+        .menu-item:hover { background: #F7F8FA; }
+        .menu-item-danger { color: #DC2626; }
+        .menu-item-danger:hover { background: #FEF2F2; }
+        .commission-toggle { display: flex; gap: 0.5rem; background: #F7F8FA; padding: 0.35rem; border-radius: 10px; border: 1px solid #EEF0F4; }
+        .toggle-btn { flex: 1; background: transparent; border: none; padding: 0.55rem 0.75rem; border-radius: 7px; font-size: 0.82rem; font-weight: 500; color: #687085; cursor: pointer; transition: all 0.15s; }
+        .toggle-btn:hover { color: #0B1320; }
+        .toggle-active { background: #FFFFFF; color: #0B1320; font-weight: 600; box-shadow: 0 1px 3px rgba(11, 19, 32, 0.08); }
+        .page-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2rem; flex-wrap: wrap; gap: 1.5rem; }
+        .project-meta { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.65rem; }
+        .status-badge { padding: 0.25rem 0.75rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; background: rgba(212, 175, 55, 0.15); color: #9a7f2a; }
         .status-termine, .status-livre { background: rgba(34, 197, 94, 0.12); color: #15803d; }
         .status-travaux { background: rgba(59, 130, 246, 0.12); color: #1d4ed8; }
-        .meta-item {
-          padding: 0.25rem 0.75rem; border-radius: 6px;
-          font-size: 0.75rem; font-weight: 500;
-          background: #F0F2F5; color: #687085;
-        }
-        .page-title {
-          font-size: 2.25rem; font-weight: 600; color: #0B1320;
-          letter-spacing: -0.02em; margin-bottom: 0.4rem;
-        }
+        .meta-item { padding: 0.25rem 0.75rem; border-radius: 6px; font-size: 0.75rem; font-weight: 500; background: #F0F2F5; color: #687085; }
+        .page-title { font-size: 2.25rem; font-weight: 600; color: #0B1320; letter-spacing: -0.02em; margin-bottom: 0.4rem; }
         .page-subtitle { color: #687085; font-size: 0.95rem; max-width: 600px; line-height: 1.5; }
-
-        .total-box {
-          background: #FFFFFF; border: 1px solid #EEF0F4; border-radius: 14px;
-          padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 0.2rem;
-          min-width: 240px; box-shadow: 0 1px 3px rgba(11, 19, 32, 0.04);
-        }
+        .total-box { background: #FFFFFF; border: 1px solid #EEF0F4; border-radius: 14px; padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 0.2rem; min-width: 240px; box-shadow: 0 1px 3px rgba(11, 19, 32, 0.04); }
         .total-label { color: #687085; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 500; }
         .total-amount { color: #0B1320; font-size: 1.4rem; font-weight: 600; }
         .total-eur { color: #9a7f2a; font-size: 0.9rem; font-weight: 500; }
-
-        /* TABS */
-        .tabs {
-          display: flex; gap: 0.25rem;
-          background: #FFFFFF; padding: 0.35rem;
-          border-radius: 12px; margin-bottom: 2rem;
-          overflow-x: auto; border: 1px solid #EEF0F4;
-          box-shadow: 0 1px 3px rgba(11, 19, 32, 0.04);
-        }
-        .tab {
-          flex: 1; padding: 0.75rem 1rem; background: transparent;
-          color: #687085; border: none; border-radius: 8px;
-          font-size: 0.9rem; font-weight: 500; transition: all 0.2s;
-          white-space: nowrap; min-width: max-content;
-        }
+        .tabs { display: flex; gap: 0.25rem; background: #FFFFFF; padding: 0.35rem; border-radius: 12px; margin-bottom: 2rem; overflow-x: auto; border: 1px solid #EEF0F4; box-shadow: 0 1px 3px rgba(11, 19, 32, 0.04); }
+        .tab { flex: 1; padding: 0.75rem 1rem; background: transparent; color: #687085; border: none; border-radius: 8px; font-size: 0.9rem; font-weight: 500; transition: all 0.2s; white-space: nowrap; min-width: max-content; }
         .tab:hover { color: #0B1320; }
         .tab-active { background: #D4AF37; color: #0B1320; font-weight: 600; }
-
-        /* CONTENT */
         .content { margin-bottom: 3rem; }
-
-        .cards-grid {
-          display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-          gap: 1.25rem;
-        }
-
-        .info-card {
-          background: #FFFFFF; border: 1px solid #EEF0F4; border-radius: 14px;
-          padding: 1.5rem; box-shadow: 0 1px 3px rgba(11, 19, 32, 0.04);
-        }
-        .info-card h3 {
-          font-size: 0.85rem; font-weight: 700; color: #0B1320;
-          text-transform: uppercase; letter-spacing: 0.08em;
-          margin-bottom: 1rem; padding-bottom: 0.75rem;
-          border-bottom: 1px solid #EEF0F4;
-        }
-
-        .info-list {
-          display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 1rem; font-size: 0.9rem;
-        }
+        .cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.25rem; }
+        .info-card { background: #FFFFFF; border: 1px solid #EEF0F4; border-radius: 14px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(11, 19, 32, 0.04); }
+        .info-card h3 { font-size: 0.85rem; font-weight: 700; color: #0B1320; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid #EEF0F4; }
+        .info-list { display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 1rem; font-size: 0.9rem; }
         .info-list dt { color: #687085; font-weight: 500; }
         .info-list dd { color: #0B1320; text-align: right; }
-
-        .summary-row {
-          display: flex; justify-content: space-between; align-items: baseline;
-          padding: 0.5rem 0; font-size: 0.9rem; color: #687085;
-        }
+        .summary-row { display: flex; justify-content: space-between; align-items: baseline; padding: 0.5rem 0; font-size: 0.9rem; color: #687085; }
         .summary-amount { color: #0B1320; font-weight: 500; }
         .summary-total { font-size: 1rem; font-weight: 600; color: #0B1320; }
         .summary-total .summary-amount { font-size: 1.1rem; font-weight: 600; }
         .summary-divider { border-top: 1px solid #EEF0F4; margin: 0.5rem 0; }
         .summary-eur { color: #9a7f2a; font-size: 0.85rem; font-weight: 500; }
-
-        .contacts-mini, .timeline-mini {
-          list-style: none; display: flex; flex-direction: column; gap: 0.6rem;
-        }
-        .contacts-mini li, .timeline-mini li {
-          display: flex; gap: 0.75rem; align-items: center;
-          font-size: 0.9rem; padding: 0.3rem 0;
-        }
-        .contact-type {
-          font-size: 0.7rem; font-weight: 600; text-transform: uppercase;
-          color: #9a7f2a; background: rgba(212, 175, 55, 0.1);
-          padding: 0.2rem 0.5rem; border-radius: 5px;
-          min-width: 80px; text-align: center;
-        }
+        .contacts-mini, .timeline-mini { list-style: none; display: flex; flex-direction: column; gap: 0.6rem; }
+        .contacts-mini li, .timeline-mini li { display: flex; gap: 0.75rem; align-items: center; font-size: 0.9rem; padding: 0.3rem 0; }
+        .contact-type { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; color: #9a7f2a; background: rgba(212, 175, 55, 0.1); padding: 0.2rem 0.5rem; border-radius: 5px; min-width: 80px; text-align: center; }
         .contact-name { color: #0B1320; }
-        .event-date {
-          font-weight: 600; color: #D4AF37; min-width: 70px; font-size: 0.85rem;
-        }
+        .event-date { font-weight: 600; color: #D4AF37; min-width: 70px; font-size: 0.85rem; }
         .timeline-mini li span:last-child { color: #0B1320; }
         .empty-mini { color: #687085; font-size: 0.9rem; font-style: italic; }
-
-        .placeholder-card {
-          background: #FFFFFF; border: 1px solid #EEF0F4; border-radius: 14px;
-          padding: 2.5rem 2rem; text-align: center;
-          box-shadow: 0 1px 3px rgba(11, 19, 32, 0.04);
-        }
-        .placeholder-card h3 { font-size: 1.2rem; font-weight: 600; color: #0B1320; margin-bottom: 0.5rem; }
-        .placeholder-card p { color: #687085; font-size: 0.95rem; margin-bottom: 0.5rem; }
-        .coming-soon { color: #9a7f2a; font-weight: 500; margin-top: 1rem; }
-        .quick-summary {
-          max-width: 420px; margin: 2rem auto 0; display: flex; flex-direction: column; gap: 0.5rem;
-        }
-        .quick-row {
-          display: flex; justify-content: space-between; padding: 0.75rem 1rem;
-          background: #F7F8FA; border-radius: 8px; font-size: 0.9rem;
-        }
-        .quick-row strong { color: #0B1320; font-weight: 600; }
-        .quick-row span { color: #687085; }
-
         @media (max-width: 640px) {
           .main { padding: 1.5rem 1rem; }
           .page-title { font-size: 1.75rem; }
-          .brand .logo { height: 32px; }
           .page-head { flex-direction: column; }
           .total-box { width: 100%; }
-          .header-inner { padding: 0 1rem; }
         }
       `}</style>
     </>
