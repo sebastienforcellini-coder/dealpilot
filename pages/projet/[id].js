@@ -26,7 +26,7 @@ export default function ProjectDetail() {
     status: "prospection",
     currency: "MAD",
     target_budget: "",
-    // Statut foncier (Maroc principalement)
+    // Statut foncier
     land_status: "",
     melkia_reference: "",
     requisition_number: "",
@@ -35,18 +35,21 @@ export default function ProjectDetail() {
     title_date: "",
     conservation_office: "",
     land_notes: "",
+    // === Dates clés du projet (auto-propagées sur les coûts) ===
+    compromise_date: "",
+    final_deed_date: "",
   });
 
   // --- CONTACTS ---
   const [showContactForm, setShowContactForm] = useState(false);
-  const [contactFormMode, setContactFormMode] = useState("new"); // "new" (créer) ou "pick" (choisir existant)
-  const [editingContactId, setEditingContactId] = useState(null); // édite les données du carnet
-  const [editingAssociationId, setEditingAssociationId] = useState(null); // édite l'association projet (commission)
-  const [contactUnlinkId, setContactUnlinkId] = useState(null); // délier du projet
-  const [contactDeleteId, setContactDeleteId] = useState(null); // supprimer du carnet
+  const [contactFormMode, setContactFormMode] = useState("new");
+  const [editingContactId, setEditingContactId] = useState(null);
+  const [editingAssociationId, setEditingAssociationId] = useState(null);
+  const [contactUnlinkId, setContactUnlinkId] = useState(null);
+  const [contactDeleteId, setContactDeleteId] = useState(null);
   const [contactMenuOpenId, setContactMenuOpenId] = useState(null);
-  const [availableContacts, setAvailableContacts] = useState([]); // carnet filtré (pas encore associés)
-  const [pickContactId, setPickContactId] = useState(""); // contact choisi dans le carnet
+  const [availableContacts, setAvailableContacts] = useState([]);
+  const [pickContactId, setPickContactId] = useState("");
 
   const [contactData, setContactData] = useState({
     type: "agent",
@@ -59,7 +62,6 @@ export default function ProjectDetail() {
     iban: "",
     website: "",
     notes: "",
-    // Champs projet (commission pour CE projet)
     commission_mode: "percentage",
     commission_percentage: "",
     commission_amount: "",
@@ -77,7 +79,7 @@ export default function ProjectDetail() {
     type_key: "",
     category: "acquisition",
     label: "",
-    input_mode: "amount", // "amount" | "percentage" | "complex" | "split"
+    input_mode: "amount",
     amount: "",
     percentage: "",
     base_amount: "",
@@ -88,17 +90,14 @@ export default function ProjectDetail() {
     due_date: "",
     compromise_date: "",
     notes: "",
-    // Split prix d'achat (Maroc)
     amount_official: "",
     amount_cash: "",
     amount_cash_fees: "",
-    // Base de référence pour les %
-    base_reference: "official", // "official" (800k) ou "real" (1,180M)
+    base_reference: "official",
     is_cash: false,
-    // === MULTI-DEVISE (mode normal "amount" uniquement) ===
-    input_currency: "", // "" ou "EUR" — vide = devise du projet (MAD)
-    exchange_rate: "", // taux figé à la création (ex: 10.85 pour 1 EUR = 10.85 MAD)
-    amount_original: "", // montant saisi en devise originale (ex: 1200 EUR)
+    input_currency: "",
+    exchange_rate: "",
+    amount_original: "",
   });
 
   // --- INTERACTIONS ---
@@ -139,7 +138,6 @@ export default function ProjectDetail() {
           MAD: 1 / d.rates.MAD,
           USD: 1 / d.rates.USD,
           GBP: 1 / d.rates.GBP,
-          // On stocke aussi les taux directs (1 EUR = X MAD) pour la conversion EUR->MAD
           _eurToMad: d.rates.MAD,
           _eurToUsd: d.rates.USD,
           _eurToGbp: d.rates.GBP,
@@ -164,8 +162,6 @@ export default function ProjectDetail() {
     return `${n} ${currency}`;
   };
 
-  // === Helper conversion EUR -> devise du projet (MAD) ===
-  // Retourne le taux 1 EUR = X (devise du projet)
   const getEurToProjectRate = () => {
     if (!project) return 1;
     const projCurrency = project.currency || "MAD";
@@ -201,11 +197,14 @@ export default function ProjectDetail() {
       land_status: p.land_status || "",
       melkia_reference: p.melkia_reference || "",
       requisition_number: p.requisition_number || "",
-      requisition_date: p.requisition_date ? p.requisition_date.substring(0, 10) : "",
+      requisition_date: toDateInput(p.requisition_date),
       title_number: p.title_number || "",
-      title_date: p.title_date ? p.title_date.substring(0, 10) : "",
+      title_date: toDateInput(p.title_date),
       conservation_office: p.conservation_office || "",
       land_notes: p.land_notes || "",
+      // === Dates clés ===
+      compromise_date: toDateInput(p.compromise_date),
+      final_deed_date: toDateInput(p.final_deed_date),
     });
     setShowEdit(true);
   };
@@ -234,6 +233,9 @@ export default function ProjectDetail() {
           title_date: editData.title_date || null,
           conservation_office: editData.conservation_office,
           land_notes: editData.land_notes,
+          // === Dates clés ===
+          compromise_date: editData.compromise_date || null,
+          final_deed_date: editData.final_deed_date || null,
         }),
       });
       const json = await res.json();
@@ -284,16 +286,13 @@ export default function ProjectDetail() {
     setPickContactId("");
   };
 
-  // Ouvrir le formulaire en mode "nouveau contact"
   const openNewContactForm = async () => {
     resetContactForm();
     setContactFormMode("new");
     setShowContactForm(true);
-    // Charger le carnet global pour permettre de basculer vers "choisir existant"
     await fetchAvailableContacts();
   };
 
-  // Ouvrir le formulaire en mode "choisir existant"
   const openPickContactForm = async () => {
     resetContactForm();
     setContactFormMode("pick");
@@ -301,7 +300,6 @@ export default function ProjectDetail() {
     await fetchAvailableContacts();
   };
 
-  // Récupérer les contacts du carnet pas encore associés à ce projet
   const fetchAvailableContacts = async () => {
     try {
       const res = await fetch(`/api/contacts?exclude_project=${id}`);
@@ -312,7 +310,6 @@ export default function ProjectDetail() {
     }
   };
 
-  // Ouvrir en mode "éditer le contact" (données du carnet global)
   const openEditContact = (contact) => {
     setContactData({
       type: contact.type || "agent",
@@ -325,7 +322,6 @@ export default function ProjectDetail() {
       iban: contact.iban || "",
       website: contact.website || "",
       notes: contact.notes || "",
-      // ces champs ne sont pas utilisés en mode édition carnet
       commission_mode: "percentage",
       commission_percentage: "",
       commission_amount: "",
@@ -339,7 +335,6 @@ export default function ProjectDetail() {
     setContactMenuOpenId(null);
   };
 
-  // Ouvrir en mode "éditer l'association" (commission pour CE projet)
   const openEditAssociation = (contact) => {
     setContactData({
       ...contactData,
@@ -361,7 +356,6 @@ export default function ProjectDetail() {
   const handleContactSubmit = async (e) => {
     e.preventDefault();
     try {
-      // Mode "edit" : on met à jour seulement le contact du carnet
       if (contactFormMode === "edit" && editingContactId) {
         const res = await fetch(`/api/contacts/${editingContactId}`, {
           method: "PATCH",
@@ -387,7 +381,6 @@ export default function ProjectDetail() {
         return;
       }
 
-      // Mode "assoc" : on met à jour seulement l'association projet (commission)
       if (contactFormMode === "assoc" && editingAssociationId) {
         const res = await fetch(`/api/project-contacts?association_id=${editingAssociationId}`, {
           method: "PATCH",
@@ -409,7 +402,6 @@ export default function ProjectDetail() {
         return;
       }
 
-      // Mode "pick" : associer un contact existant du carnet
       if (contactFormMode === "pick") {
         if (!pickContactId) {
           alert("Sélectionnez un contact dans le carnet");
@@ -439,7 +431,6 @@ export default function ProjectDetail() {
         return;
       }
 
-      // Mode "new" : créer un nouveau contact ET l'associer au projet
       const res = await fetch("/api/contacts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -454,7 +445,6 @@ export default function ProjectDetail() {
           iban: contactData.iban,
           website: contactData.website,
           notes: contactData.notes,
-          // Liaison automatique avec le projet courant
           project_id: Number(id),
           project_role: contactData.project_role,
           commission_percentage:
@@ -477,7 +467,6 @@ export default function ProjectDetail() {
     }
   };
 
-  // Délier un contact du projet (garde dans le carnet)
   const unlinkContact = async (associationId) => {
     try {
       const res = await fetch(`/api/project-contacts?association_id=${associationId}`, {
@@ -494,7 +483,6 @@ export default function ProjectDetail() {
     }
   };
 
-  // Supprimer définitivement du carnet (+ toutes associations)
   const deleteContact = async (contactId) => {
     try {
       const res = await fetch(`/api/contacts/${contactId}`, { method: "DELETE" });
@@ -509,7 +497,6 @@ export default function ProjectDetail() {
     }
   };
 
-  // --- INTERACTIONS : add, delete ---
   const openInteractionForm = (contactId) => {
     setInteractionData({
       type: "appel",
@@ -554,124 +541,19 @@ export default function ProjectDetail() {
     }
   };
 
-  // ============ CATALOGUE POSTES PRÉ-DÉFINIS (adapté Maroc) ============
+  // ============ CATALOGUE ============
   const costCatalog = [
-    // Acquisition
-    {
-      key: "prix_achat",
-      category: "acquisition",
-      label: "Prix d'achat du bien",
-      icon: "🏠",
-      description: "Déclaré (virement) + Cash + Frais d'acquisition",
-      input_mode: "split", // mode spécial 3 champs
-      hint: "Spécifique Maroc : séparation officiel/cash pour le calcul correct des frais",
-    },
-    {
-      key: "honoraires_notaire",
-      category: "acquisition",
-      label: "Honoraires notaire",
-      icon: "⚖️",
-      description: "Commission du notaire (1% min) + TVA 20%",
-      input_mode: "complex",
-      percentage: 1,
-      tax_rate: 20,
-      fixed_fee: 1500,
-      hint: "Au Maroc : 1% du prix déclaré + TVA 20% (minimum 1500 DH)",
-      contact_type: "notaire",
-      default_base: "official", // se calcule sur le prix déclaré
-    },
-    {
-      key: "droits_enregistrement",
-      category: "acquisition",
-      label: "Droits d'enregistrement",
-      icon: "📋",
-      description: "Taxe d'enregistrement obligatoire",
-      input_mode: "percentage",
-      percentage: 4,
-      hint: "4% du prix déclaré (terrain nu : 6%)",
-      default_base: "official",
-    },
-    {
-      key: "conservation_fonciere",
-      category: "acquisition",
-      label: "Conservation foncière",
-      icon: "📜",
-      description: "Frais d'inscription ANCFCC",
-      input_mode: "complex",
-      percentage: 1,
-      fixed_fee: 150,
-      hint: "1% du prix déclaré + 150 DH forfaitaire",
-      default_base: "official",
-    },
-    {
-      key: "frais_divers_notaire",
-      category: "acquisition",
-      label: "Frais divers notaire",
-      icon: "📎",
-      description: "Timbres, certificats, copies",
-      input_mode: "amount",
-      hint: "Entre 1 000 et 3 000 DH selon dossier",
-    },
-    {
-      key: "commission_agent",
-      category: "acquisition",
-      label: "Commission agent immobilier",
-      icon: "🏘️",
-      description: "Commission négociée avec l'agent",
-      input_mode: "percentage",
-      percentage: 2.5,
-      hint: "Au Maroc : entre 2% et 3% selon négociation",
-      contact_type: "agent",
-      default_base: "real", // souvent calculée sur le prix réel
-    },
-    {
-      key: "frais_titrage",
-      category: "acquisition",
-      label: "Frais de titrage (Melkia)",
-      icon: "📐",
-      description: "Géomètre + bornage + immatriculation",
-      input_mode: "amount",
-      hint: "Si bien en Melkia ou réquisition",
-    },
-    {
-      key: "diagnostics",
-      category: "acquisition",
-      label: "Diagnostics & expertises",
-      icon: "🔍",
-      description: "Expertises techniques du bien",
-      input_mode: "amount",
-    },
-
-    // Travaux
-    {
-      key: "travaux",
-      category: "travaux",
-      label: "Travaux (enveloppe globale)",
-      icon: "🔨",
-      description: "À détailler en postes plus tard",
-      input_mode: "amount",
-      hint: "Vous pourrez détailler par corps de métier plus tard",
-    },
-
-    // Mobilier
-    {
-      key: "mobilier",
-      category: "mobilier",
-      label: "Mobilier & décoration",
-      icon: "🪑",
-      description: "Ameublement, décoration, électroménager",
-      input_mode: "amount",
-    },
-
-    // Autre
-    {
-      key: "autre",
-      category: "autre",
-      label: "Autre poste",
-      icon: "📝",
-      description: "Saisie libre",
-      input_mode: "amount",
-    },
+    { key: "prix_achat", category: "acquisition", label: "Prix d'achat du bien", icon: "🏠", description: "Déclaré (virement) + Cash + Frais d'acquisition", input_mode: "split", hint: "Spécifique Maroc : séparation officiel/cash pour le calcul correct des frais" },
+    { key: "honoraires_notaire", category: "acquisition", label: "Honoraires notaire", icon: "⚖️", description: "Commission du notaire (1% min) + TVA 20%", input_mode: "complex", percentage: 1, tax_rate: 20, fixed_fee: 1500, hint: "Au Maroc : 1% du prix déclaré + TVA 20% (minimum 1500 DH)", contact_type: "notaire", default_base: "official" },
+    { key: "droits_enregistrement", category: "acquisition", label: "Droits d'enregistrement", icon: "📋", description: "Taxe d'enregistrement obligatoire", input_mode: "percentage", percentage: 4, hint: "4% du prix déclaré (terrain nu : 6%)", default_base: "official" },
+    { key: "conservation_fonciere", category: "acquisition", label: "Conservation foncière", icon: "📜", description: "Frais d'inscription ANCFCC", input_mode: "complex", percentage: 1, fixed_fee: 150, hint: "1% du prix déclaré + 150 DH forfaitaire", default_base: "official" },
+    { key: "frais_divers_notaire", category: "acquisition", label: "Frais divers notaire", icon: "📎", description: "Timbres, certificats, copies", input_mode: "amount", hint: "Entre 1 000 et 3 000 DH selon dossier" },
+    { key: "commission_agent", category: "acquisition", label: "Commission agent immobilier", icon: "🏘️", description: "Commission négociée avec l'agent", input_mode: "percentage", percentage: 2.5, hint: "Au Maroc : entre 2% et 3% selon négociation", contact_type: "agent", default_base: "real" },
+    { key: "frais_titrage", category: "acquisition", label: "Frais de titrage (Melkia)", icon: "📐", description: "Géomètre + bornage + immatriculation", input_mode: "amount", hint: "Si bien en Melkia ou réquisition" },
+    { key: "diagnostics", category: "acquisition", label: "Diagnostics & expertises", icon: "🔍", description: "Expertises techniques du bien", input_mode: "amount" },
+    { key: "travaux", category: "travaux", label: "Travaux (enveloppe globale)", icon: "🔨", description: "À détailler en postes plus tard", input_mode: "amount", hint: "Vous pourrez détailler par corps de métier plus tard" },
+    { key: "mobilier", category: "mobilier", label: "Mobilier & décoration", icon: "🪑", description: "Ameublement, décoration, électroménager", input_mode: "amount" },
+    { key: "autre", category: "autre", label: "Autre poste", icon: "📝", description: "Saisie libre", input_mode: "amount" },
   ];
 
   const categoryLabels = {
@@ -695,31 +577,25 @@ export default function ProjectDetail() {
   };
 
   // ============ CALCULS ============
-  // Calcule le montant final d'un coût selon son mode de saisie
   const computeCostAmount = (cost) => {
     if (!cost) return 0;
-    // Mode split (prix d'achat avec 3 champs) → total = déclaré + cash + frais cash
     if (cost.input_mode === "split") {
       const official = Number(cost.amount_official || 0);
       const cash = Number(cost.amount_cash || 0);
       const cashFees = Number(cost.amount_cash_fees || 0);
       return Math.round(official + cash + cashFees);
     }
-    // Mode montant direct
     if (cost.input_mode === "amount" || !cost.input_mode) {
-      // === MULTI-DEVISE : si saisie en EUR, on convertit avec le taux figé ===
       if (cost.input_currency === "EUR" && cost.amount_original) {
         const rate = Number(cost.exchange_rate || getEurToProjectRate());
         return Math.round(Number(cost.amount_original) * rate);
       }
       return Number(cost.amount || 0);
     }
-    // Mode pourcentage simple
     if (cost.input_mode === "percentage") {
       const base = Number(cost.base_amount || getPurchasePrice(cost.base_reference) || 0);
       return Math.round(base * Number(cost.percentage || 0) / 100);
     }
-    // Mode complexe (% + TVA + forfait) : ex honoraires notaire
     if (cost.input_mode === "complex") {
       const base = Number(cost.base_amount || getPurchasePrice(cost.base_reference) || 0);
       const pct = Number(cost.percentage || 0);
@@ -732,7 +608,6 @@ export default function ProjectDetail() {
     return Number(cost.amount || 0);
   };
 
-  // Récupère le prix d'achat selon la base demandée
   const getPurchasePrice = (reference = "official") => {
     const purchase = costs.find((c) => c.type_key === "prix_achat");
     if (!purchase) return 0;
@@ -743,6 +618,16 @@ export default function ProjectDetail() {
       return Number(purchase.amount_official || 0);
     }
     return Number(purchase.amount || 0);
+  };
+
+  // === Helper : récupère les dates clés du projet (pour pré-remplissage des coûts) ===
+  const getProjectDates = () => {
+    if (!data || !data.project) return { compromise: "", deed: "" };
+    const p = data.project;
+    return {
+      compromise: toDateInput(p.compromise_date),
+      deed: toDateInput(p.final_deed_date),
+    };
   };
 
   // ============ CRUD COSTS ============
@@ -821,7 +706,6 @@ export default function ProjectDetail() {
   };
 
   const openEditCost = (cost) => {
-    // Détection multi-devise
     const inputCurrency = cost.currency && cost.currency !== (project?.currency || "MAD") ? cost.currency : "";
 
     setCostData({
@@ -836,8 +720,8 @@ export default function ProjectDetail() {
       fixed_fee: cost.fixed_fee ? String(cost.fixed_fee) : "",
       contact_id: cost.contact_id ? String(cost.contact_id) : "",
       status: cost.status || "estime",
-      due_date: cost.due_date ? cost.due_date.substring(0, 10) : "",
-      compromise_date: cost.compromise_date ? cost.compromise_date.substring(0, 10) : "",
+      due_date: toDateInput(cost.due_date),
+      compromise_date: toDateInput(cost.compromise_date),
       notes: cost.notes || "",
       amount_official: cost.amount_official ? String(cost.amount_official) : "",
       amount_cash: cost.amount_cash ? String(cost.amount_cash) : "",
@@ -853,20 +737,17 @@ export default function ProjectDetail() {
     setCostMenuOpenId(null);
   };
 
-  // === Multi-devise : quand on change la devise ===
   const handleCurrencyChange = (newCurrency) => {
     if (newCurrency === "EUR") {
-      // Activer mode EUR : pré-remplir le taux du jour
       const rate = getEurToProjectRate();
       setCostData({
         ...costData,
         input_currency: "EUR",
         exchange_rate: rate.toFixed(4),
         amount_original: costData.amount_original || "",
-        amount: "", // on vide le montant en MAD
+        amount: "",
       });
     } else {
-      // Retour MAD : on vide les champs EUR
       setCostData({
         ...costData,
         input_currency: "",
@@ -881,7 +762,6 @@ export default function ProjectDetail() {
     try {
       const finalAmount = computeCostAmount(costData);
 
-      // === Détermination de la devise et taux à enregistrer ===
       const isEurMode = costData.input_currency === "EUR" && costData.input_mode === "amount";
       const finalCurrency = isEurMode ? "EUR" : (project.currency || "MAD");
       const finalExchangeRate = isEurMode ? Number(costData.exchange_rate) : 1;
@@ -891,8 +771,8 @@ export default function ProjectDetail() {
         type_key: costData.type_key || null,
         category: costData.category,
         label: costData.label,
-        amount: finalAmount, // toujours en devise du projet
-        currency: finalCurrency, // devise saisie ("EUR" ou devise projet)
+        amount: finalAmount,
+        currency: finalCurrency,
         exchange_rate: finalExchangeRate,
         amount_original: finalAmountOriginal,
         percentage: costData.percentage || null,
@@ -949,7 +829,6 @@ export default function ProjectDetail() {
     }
   };
 
-  // Labels en français
   const contactTypeLabels = {
     agent: "Agent immobilier",
     vendeur: "Vendeur",
@@ -1024,7 +903,6 @@ export default function ProjectDetail() {
   const totalWorksActual = works.reduce((sum, w) => sum + Number(w.actual_amount || 0), 0);
   const grandTotal = totalCosts + totalWorksEstimated;
 
-  // Calculs de totaux par catégorie
   const costsByCategory = {
     acquisition: costs.filter((c) => c.category === "acquisition"),
     travaux: costs.filter((c) => c.category === "travaux"),
@@ -1042,10 +920,53 @@ export default function ProjectDetail() {
   const budgetUsagePercent = targetBudget > 0 ? Math.round((grandTotalCosts / targetBudget) * 100) : 0;
   const budgetRemaining = targetBudget - grandTotalCosts;
 
-  // === Helper : format pour ligne de coût avec multi-devise ===
+  // === Helper : parser une date (string ISO ou YYYY-MM-DD) comme date LOCALE ===
+  const parseLocalDate = (dateStr) => {
+    if (!dateStr) return null;
+    const str = String(dateStr);
+    // Si format ISO complet (avec T et Z), convertir en date locale via Date object
+    if (str.includes("T")) {
+      const utcDate = new Date(str);
+      if (isNaN(utcDate.getTime())) return null;
+      // Récupère année/mois/jour en LOCAL (timezone du navigateur)
+      return new Date(utcDate.getFullYear(), utcDate.getMonth(), utcDate.getDate());
+    }
+    // Sinon format YYYY-MM-DD pur
+    const [y, m, d] = str.substring(0, 10).split("-").map(Number);
+    if (!y || !m || !d) return null;
+    return new Date(y, m - 1, d);
+  };
+
+  // === Helper : convertir une date (string ISO ou YYYY-MM-DD) en YYYY-MM-DD pour les <input type="date"> ===
+  const toDateInput = (dateStr) => {
+    const d = parseLocalDate(dateStr);
+    if (!d) return "";
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  // === Helper : formater une date au format français court ===
+  const formatDateShort = (dateStr) => {
+    const d = parseLocalDate(dateStr);
+    if (!d) return "";
+    return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+  };
+
+  // === Helper : nombre de jours jusqu'à une date ===
+  const daysUntil = (dateStr) => {
+    const d = parseLocalDate(dateStr);
+    if (!d) return null;
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    d.setHours(0, 0, 0, 0);
+    const diffTime = d - now;
+    return Math.round(diffTime / (1000 * 60 * 60 * 24));
+  };
+
   const renderCostAmount = (c) => {
     const projCurrency = project.currency || "MAD";
-    // Cas multi-devise : currency différente de la devise du projet
     if (c.currency && c.currency !== projCurrency && c.amount_original) {
       return (
         <>
@@ -1057,7 +978,6 @@ export default function ProjectDetail() {
         </>
       );
     }
-    // Cas normal : devise du projet
     return (
       <>
         <span className="cost-amount">{formatAmount(c.amount, projCurrency)}</span>
@@ -1067,6 +987,12 @@ export default function ProjectDetail() {
       </>
     );
   };
+
+  // === Bandeau Dates clés ===
+  const compromiseDate = project.compromise_date;
+  const deedDate = project.final_deed_date;
+  const hasKeyDates = compromiseDate || deedDate;
+  const daysToDeed = daysUntil(deedDate);
 
   return (
     <>
@@ -1112,6 +1038,35 @@ export default function ProjectDetail() {
               </div>
               <h1 className="page-title">{project.name}</h1>
               {project.description && <p className="page-subtitle">{project.description}</p>}
+
+              {/* === BANDEAU DATES CLÉS === */}
+              {hasKeyDates && (
+                <div className="key-dates-banner">
+                  {compromiseDate && (
+                    <span className="key-date-item">
+                      <span className="key-date-icon">📅</span>
+                      <span className="key-date-label">Compromis :</span>
+                      <strong>{formatDateShort(compromiseDate)}</strong>
+                    </span>
+                  )}
+                  {deedDate && (
+                    <span className="key-date-item">
+                      <span className="key-date-icon">📅</span>
+                      <span className="key-date-label">Acte définitif :</span>
+                      <strong>{formatDateShort(deedDate)}</strong>
+                      {daysToDeed !== null && daysToDeed > 0 && (
+                        <span className="key-date-countdown">(dans {daysToDeed} jours)</span>
+                      )}
+                      {daysToDeed !== null && daysToDeed === 0 && (
+                        <span className="key-date-countdown today">(aujourd'hui)</span>
+                      )}
+                      {daysToDeed !== null && daysToDeed < 0 && (
+                        <span className="key-date-countdown past">(passé)</span>
+                      )}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
             <div className="total-box">
               <span className="total-label">Budget total estimé</span>
@@ -1146,6 +1101,8 @@ export default function ProjectDetail() {
                     <dt>Ville</dt><dd>{project.city || "—"}</dd>
                     <dt>Devise locale</dt><dd>{project.currency}</dd>
                     <dt>Statut</dt><dd>{statusLabels[project.status] || project.status}</dd>
+                    {compromiseDate && (<><dt>Date compromis</dt><dd>{formatDateShort(compromiseDate)}</dd></>)}
+                    {deedDate && (<><dt>Date acte définitif</dt><dd>{formatDateShort(deedDate)}</dd></>)}
                   </dl>
                 </div>
 
@@ -1364,7 +1321,6 @@ export default function ProjectDetail() {
                       {["acquisition", "travaux", "mobilier", "autre"].map((cat) => {
                         const items = costsByCategory[cat];
                         if (items.length === 0) return null;
-
                         return (
                           <div key={cat} className="cost-category">
                             <div className="cat-header">
@@ -1383,9 +1339,7 @@ export default function ProjectDetail() {
                                       <span className={`cost-status status-${c.status}`}>
                                         {costStatusLabels[c.status] || c.status}
                                       </span>
-                                      {c.is_cash && (
-                                        <span className="cash-tag">💵 CASH</span>
-                                      )}
+                                      {c.is_cash && <span className="cash-tag">💵 CASH</span>}
                                       {c.currency && c.currency !== (project.currency || "MAD") && (
                                         <span className="currency-tag">{c.currency}</span>
                                       )}
@@ -1411,15 +1365,7 @@ export default function ProjectDetail() {
                                           Taux : 1 {c.currency} = {Number(c.exchange_rate).toFixed(4)} {project.currency}
                                         </span>
                                       )}
-                                      {c.contact_name && (
-                                        <span className="cost-contact">→ {c.contact_name}</span>
-                                      )}
-                                      {c.compromise_date && (
-                                        <span className="cost-date">📅 Compromis : {new Date(c.compromise_date).toLocaleDateString("fr-FR")}</span>
-                                      )}
-                                      {c.due_date && (
-                                        <span className="cost-date">📅 Acte : {new Date(c.due_date).toLocaleDateString("fr-FR")}</span>
-                                      )}
+                                      {c.contact_name && <span className="cost-contact">→ {c.contact_name}</span>}
                                     </div>
                                     {c.input_mode === "split" && (
                                       <div className="split-sublines">
@@ -1515,12 +1461,8 @@ export default function ProjectDetail() {
                     </p>
                   </div>
                   <div className="contacts-header-actions">
-                    <button className="btn-outline" onClick={openPickContactForm}>
-                      📇 Choisir dans le carnet
-                    </button>
-                    <button className="btn-primary" onClick={openNewContactForm}>
-                      + Nouveau contact
-                    </button>
+                    <button className="btn-outline" onClick={openPickContactForm}>📇 Choisir dans le carnet</button>
+                    <button className="btn-primary" onClick={openNewContactForm}>+ Nouveau contact</button>
                   </div>
                 </div>
 
@@ -1528,14 +1470,10 @@ export default function ProjectDetail() {
                   <div className="empty-state">
                     <div className="empty-icon-big">📇</div>
                     <h4>Aucun contact associé</h4>
-                    <p>Créez un nouveau contact ou choisissez-en un dans votre carnet d'adresses global (partagé entre tous vos projets).</p>
+                    <p>Créez un nouveau contact ou choisissez-en un dans votre carnet d'adresses global.</p>
                     <div style={{ display: "flex", gap: "0.75rem", justifyContent: "center", flexWrap: "wrap" }}>
-                      <button className="btn-outline" onClick={openPickContactForm}>
-                        📇 Choisir dans le carnet
-                      </button>
-                      <button className="btn-primary" onClick={openNewContactForm}>
-                        + Créer un nouveau contact
-                      </button>
+                      <button className="btn-outline" onClick={openPickContactForm}>📇 Choisir dans le carnet</button>
+                      <button className="btn-primary" onClick={openNewContactForm}>+ Créer un nouveau contact</button>
                     </div>
                   </div>
                 ) : (
@@ -1583,30 +1521,22 @@ export default function ProjectDetail() {
                                 <>
                                   <div className="menu-backdrop" onClick={() => setContactMenuOpenId(null)} />
                                   <div className="menu-dropdown">
-                                    <button className="menu-item" onClick={() => openEditContact(c)}>
-                                      ✏️ Modifier les infos
-                                    </button>
-                                    <button className="menu-item" onClick={() => openEditAssociation(c)}>
-                                      💰 Modifier commission
-                                    </button>
+                                    <button className="menu-item" onClick={() => openEditContact(c)}>✏️ Modifier les infos</button>
+                                    <button className="menu-item" onClick={() => openEditAssociation(c)}>💰 Modifier commission</button>
                                     <button
                                       className="menu-item"
                                       onClick={() => {
                                         setContactUnlinkId(c.association_id);
                                         setContactMenuOpenId(null);
                                       }}
-                                    >
-                                      🔗 Retirer du projet
-                                    </button>
+                                    >🔗 Retirer du projet</button>
                                     <button
                                       className="menu-item menu-item-danger"
                                       onClick={() => {
                                         setContactDeleteId(c.id);
                                         setContactMenuOpenId(null);
                                       }}
-                                    >
-                                      🗑️ Supprimer du carnet
-                                    </button>
+                                    >🗑️ Supprimer du carnet</button>
                                   </div>
                                 </>
                               )}
@@ -1678,26 +1608,17 @@ export default function ProjectDetail() {
                           {isExpanded && (
                             <div className="interactions-section">
                               <div className="interactions-header">
-                                <button
-                                  className="btn-mini"
-                                  onClick={() => openInteractionForm(c.id)}
-                                >
+                                <button className="btn-mini" onClick={() => openInteractionForm(c.id)}>
                                   + Ajouter un échange
                                 </button>
                               </div>
 
                               {showInteractionForm === c.id && (
-                                <form
-                                  className="interaction-form"
-                                  onSubmit={(e) => handleInteractionSubmit(e, c.id)}
-                                >
+                                <form className="interaction-form" onSubmit={(e) => handleInteractionSubmit(e, c.id)}>
                                   <div className="row">
                                     <label>
                                       <span>Type</span>
-                                      <select
-                                        value={interactionData.type}
-                                        onChange={(e) => setInteractionData({ ...interactionData, type: e.target.value })}
-                                      >
+                                      <select value={interactionData.type} onChange={(e) => setInteractionData({ ...interactionData, type: e.target.value })}>
                                         <option value="appel">📞 Appel</option>
                                         <option value="email">📧 Email</option>
                                         <option value="rdv">🤝 Rendez-vous</option>
@@ -1708,38 +1629,20 @@ export default function ProjectDetail() {
                                     </label>
                                     <label>
                                       <span>Date</span>
-                                      <input
-                                        type="date"
-                                        value={interactionData.interaction_date}
-                                        onChange={(e) => setInteractionData({ ...interactionData, interaction_date: e.target.value })}
-                                      />
+                                      <input type="date" value={interactionData.interaction_date} onChange={(e) => setInteractionData({ ...interactionData, interaction_date: e.target.value })} />
                                     </label>
                                   </div>
                                   <label>
                                     <span>Sujet</span>
-                                    <input
-                                      type="text"
-                                      value={interactionData.subject}
-                                      onChange={(e) => setInteractionData({ ...interactionData, subject: e.target.value })}
-                                      placeholder="Ex: Visite du bien, discussion tarifs..."
-                                    />
+                                    <input type="text" value={interactionData.subject} onChange={(e) => setInteractionData({ ...interactionData, subject: e.target.value })} placeholder="Ex: Visite du bien, discussion tarifs..." />
                                   </label>
                                   <label>
                                     <span>Notes</span>
-                                    <textarea
-                                      rows="2"
-                                      value={interactionData.notes}
-                                      onChange={(e) => setInteractionData({ ...interactionData, notes: e.target.value })}
-                                      placeholder="Détails, points abordés, décisions prises..."
-                                    />
+                                    <textarea rows="2" value={interactionData.notes} onChange={(e) => setInteractionData({ ...interactionData, notes: e.target.value })} placeholder="Détails, points abordés, décisions prises..." />
                                   </label>
                                   <div className="interaction-form-actions">
-                                    <button type="button" className="btn-ghost btn-mini" onClick={() => setShowInteractionForm(null)}>
-                                      Annuler
-                                    </button>
-                                    <button type="submit" className="btn-primary btn-mini">
-                                      Enregistrer
-                                    </button>
+                                    <button type="button" className="btn-ghost btn-mini" onClick={() => setShowInteractionForm(null)}>Annuler</button>
+                                    <button type="submit" className="btn-primary btn-mini">Enregistrer</button>
                                   </div>
                                 </form>
                               )}
@@ -1751,20 +1654,11 @@ export default function ProjectDetail() {
                                   {contactInteractions.map((inter) => (
                                     <li key={inter.id} className="interaction-item">
                                       <div className="interaction-header">
-                                        <span className="interaction-type">
-                                          {interactionTypeLabels[inter.type] || inter.type}
-                                        </span>
+                                        <span className="interaction-type">{interactionTypeLabels[inter.type] || inter.type}</span>
                                         <span className="interaction-date">
                                           {new Date(inter.interaction_date).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })}
                                         </span>
-                                        <button
-                                          className="interaction-delete"
-                                          onClick={() => deleteInteraction(inter.id)}
-                                          aria-label="Supprimer"
-                                          title="Supprimer cet échange"
-                                        >
-                                          ×
-                                        </button>
+                                        <button className="interaction-delete" onClick={() => deleteInteraction(inter.id)} aria-label="Supprimer" title="Supprimer cet échange">×</button>
                                       </div>
                                       {inter.subject && <div className="interaction-subject">{inter.subject}</div>}
                                       {inter.notes && <div className="interaction-notes">{inter.notes}</div>}
@@ -1788,7 +1682,7 @@ export default function ProjectDetail() {
           </section>
         </main>
 
-        {/* MODAL ÉDITION */}
+        {/* MODAL ÉDITION PROJET */}
         {showEdit && (
           <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) e.currentTarget.dataset.downOnOverlay = "1"; }} onClick={(e) => { if (e.target === e.currentTarget && e.currentTarget.dataset.downOnOverlay === "1") setShowEdit(false); e.currentTarget.dataset.downOnOverlay = ""; }}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -1849,6 +1743,32 @@ export default function ProjectDetail() {
                   <span>Description</span>
                   <textarea rows="3" value={editData.description} onChange={(e) => setEditData({ ...editData, description: e.target.value })} />
                 </label>
+
+                {/* === SECTION DATES CLÉS === */}
+                <div className="section-divider">
+                  <span>📅 Dates clés du projet</span>
+                </div>
+                <div className="key-dates-banner-form">
+                  💡 Ces dates seront <strong>automatiquement pré-remplies</strong> sur chaque nouveau coût. Vous pourrez toujours les modifier ligne par ligne si besoin (cas particulier d'acompte par exemple).
+                </div>
+                <div className="row">
+                  <label>
+                    <span>Date du compromis</span>
+                    <input
+                      type="date"
+                      value={editData.compromise_date}
+                      onChange={(e) => setEditData({ ...editData, compromise_date: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    <span>Date de l'acte définitif</span>
+                    <input
+                      type="date"
+                      value={editData.final_deed_date}
+                      onChange={(e) => setEditData({ ...editData, final_deed_date: e.target.value })}
+                    />
+                  </label>
+                </div>
 
                 {(editData.country || "").toLowerCase().includes("maroc") && (
                   <>
@@ -1917,7 +1837,7 @@ export default function ProjectDetail() {
           </div>
         )}
 
-        {/* MODAL CONFIRMATION SUPPRESSION */}
+        {/* MODAL CONFIRMATION SUPPRESSION PROJET */}
         {showDeleteConfirm && (
           <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) e.currentTarget.dataset.downOnOverlay = "1"; }} onClick={(e) => { if (e.target === e.currentTarget && e.currentTarget.dataset.downOnOverlay === "1") setShowDeleteConfirm(false); e.currentTarget.dataset.downOnOverlay = ""; }}>
             <div className="modal modal-small" onClick={(e) => e.stopPropagation()}>
@@ -2022,29 +1942,14 @@ export default function ProjectDetail() {
                   <button type="button" className={`toggle-btn ${costData.input_mode === "split" ? "toggle-active" : ""}`} onClick={() => setCostData({ ...costData, input_mode: "split", input_currency: "", exchange_rate: "", amount_original: "" })}>Déclaré + Cash 💵</button>
                 </div>
 
-                {/* === MODE AMOUNT — avec sélecteur de devise === */}
                 {costData.input_mode === "amount" && (
                   <>
-                    {/* Sélecteur de devise */}
                     <div className="currency-selector">
                       <span className="currency-selector-label">Devise de saisie :</span>
-                      <button
-                        type="button"
-                        className={`toggle-btn ${costData.input_currency !== "EUR" ? "toggle-active" : ""}`}
-                        onClick={() => handleCurrencyChange("")}
-                      >
-                        {project.currency} (devise du projet)
-                      </button>
-                      <button
-                        type="button"
-                        className={`toggle-btn ${costData.input_currency === "EUR" ? "toggle-active" : ""}`}
-                        onClick={() => handleCurrencyChange("EUR")}
-                      >
-                        € EUR
-                      </button>
+                      <button type="button" className={`toggle-btn ${costData.input_currency !== "EUR" ? "toggle-active" : ""}`} onClick={() => handleCurrencyChange("")}>{project.currency} (devise du projet)</button>
+                      <button type="button" className={`toggle-btn ${costData.input_currency === "EUR" ? "toggle-active" : ""}`} onClick={() => handleCurrencyChange("EUR")}>€ EUR</button>
                     </div>
 
-                    {/* Saisie en MAD (devise du projet) */}
                     {costData.input_currency !== "EUR" && (
                       <label>
                         <span>Montant ({project.currency})</span>
@@ -2052,29 +1957,16 @@ export default function ProjectDetail() {
                       </label>
                     )}
 
-                    {/* Saisie en EUR */}
                     {costData.input_currency === "EUR" && (
                       <>
                         <label>
                           <span>Montant en EUR (€)</span>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={costData.amount_original}
-                            onChange={(e) => setCostData({ ...costData, amount_original: e.target.value })}
-                            placeholder="Ex: 1200"
-                          />
+                          <input type="number" step="0.01" value={costData.amount_original} onChange={(e) => setCostData({ ...costData, amount_original: e.target.value })} placeholder="Ex: 1200" />
                           <small className="field-hint">Saisissez le montant tel qu'il apparaît sur votre facture (en €).</small>
                         </label>
                         <label>
                           <span>Taux de change : 1 EUR = ? {project.currency}</span>
-                          <input
-                            type="number"
-                            step="0.0001"
-                            value={costData.exchange_rate}
-                            onChange={(e) => setCostData({ ...costData, exchange_rate: e.target.value })}
-                            placeholder={String(getEurToProjectRate().toFixed(4))}
-                          />
+                          <input type="number" step="0.0001" value={costData.exchange_rate} onChange={(e) => setCostData({ ...costData, exchange_rate: e.target.value })} placeholder={String(getEurToProjectRate().toFixed(4))} />
                           <small className="field-hint">
                             Taux du jour : 1 EUR = {getEurToProjectRate().toFixed(4)} {project.currency}.
                             Ce taux sera <strong>figé</strong> à la création (modifiable manuellement si besoin).
@@ -2220,19 +2112,6 @@ export default function ProjectDetail() {
                   </select>
                 </label>
 
-                <div className="row">
-                  <label>
-                    <span>📅 Date compromis</span>
-                    <input type="date" value={costData.compromise_date} onChange={(e) => setCostData({ ...costData, compromise_date: e.target.value })} />
-                    <small className="field-hint">Paiement prévu à la signature du compromis (ex: acompte)</small>
-                  </label>
-                  <label>
-                    <span>📅 Date acte définitif</span>
-                    <input type="date" value={costData.due_date} onChange={(e) => setCostData({ ...costData, due_date: e.target.value })} />
-                    <small className="field-hint">Paiement prévu à la signature de l'acte</small>
-                  </label>
-                </div>
-
                 <label>
                   <span>Notes</span>
                   <textarea rows="2" value={costData.notes} onChange={(e) => setCostData({ ...costData, notes: e.target.value })} placeholder="Informations complémentaires..." />
@@ -2281,7 +2160,7 @@ export default function ProjectDetail() {
               </div>
               {contactFormMode === "new" && (
                 <div className="info-banner">
-                  Ce contact sera ajouté à votre carnet d'adresses global (réutilisable sur tous vos projets) et automatiquement associé à ce projet.
+                  Ce contact sera ajouté à votre carnet d'adresses global et automatiquement associé à ce projet.
                   <button type="button" className="link-btn" onClick={openPickContactForm}>Choisir un contact existant ↗</button>
                 </div>
               )}
@@ -2421,7 +2300,6 @@ export default function ProjectDetail() {
               </div>
               <div className="modal-body-text">
                 <p>Le contact sera retiré de ce projet, mais <strong>conservé dans votre carnet d'adresses global</strong>.</p>
-                <p>Vous pourrez le ré-associer plus tard si besoin.</p>
               </div>
               <div className="modal-actions" style={{ padding: "1rem 1.75rem 1.75rem" }}>
                 <button type="button" className="btn-ghost" onClick={() => setContactUnlinkId(null)}>Annuler</button>
@@ -2502,6 +2380,17 @@ export default function ProjectDetail() {
         .btn-danger:hover { background: #B91C1C; }
         .section-divider { margin-top: 1rem; padding-top: 1rem; padding-bottom: 0.25rem; border-top: 1px solid #EEF0F4; }
         .section-divider span { color: #0B1320; font-size: 0.85rem; font-weight: 600; letter-spacing: 0.05em; }
+        /* === BANDEAU DATES CLÉS === */
+        .key-dates-banner { display: flex; gap: 1.25rem; flex-wrap: wrap; margin-top: 1rem; padding: 0.75rem 1rem; background: linear-gradient(90deg, rgba(212, 175, 55, 0.08), rgba(212, 175, 55, 0.02)); border: 1px solid rgba(212, 175, 55, 0.2); border-radius: 10px; }
+        .key-date-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.88rem; color: #0B1320; }
+        .key-date-icon { font-size: 1rem; }
+        .key-date-label { color: #687085; font-weight: 500; }
+        .key-date-item strong { color: #9a7f2a; font-weight: 600; }
+        .key-date-countdown { color: #687085; font-size: 0.82rem; font-style: italic; margin-left: 0.25rem; }
+        .key-date-countdown.today { color: #DC2626; font-weight: 600; font-style: normal; }
+        .key-date-countdown.past { color: #687085; opacity: 0.7; }
+        .key-dates-banner-form { background: #FEFBF2; border: 1px solid rgba(212, 175, 55, 0.25); border-radius: 10px; padding: 0.75rem 1rem; font-size: 0.85rem; color: #687085; line-height: 1.5; }
+        .key-dates-banner-form strong { color: #9a7f2a; }
         .land-card { grid-column: 1 / -1; background: linear-gradient(135deg, #FFFFFF 0%, #FEFBF2 100%); border: 1px solid rgba(212, 175, 55, 0.25); }
         .land-timeline { display: flex; align-items: center; justify-content: space-between; margin-top: 0.5rem; padding: 0.5rem 0 0.25rem; }
         .land-step { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; color: #687085; font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; flex-shrink: 0; }
@@ -2613,7 +2502,6 @@ export default function ProjectDetail() {
         .calc-preview strong { color: #9a7f2a; font-size: 1rem; }
         .eur-preview { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
         .eur-preview .preview-total { color: #9a7f2a; font-size: 1.15rem; font-weight: 600; }
-        /* === SÉLECTEUR DE DEVISE === */
         .currency-selector { display: flex; align-items: center; gap: 0.5rem; background: #F7F8FA; padding: 0.4rem; border-radius: 10px; border: 1px solid #EEF0F4; flex-wrap: wrap; }
         .currency-selector-label { font-size: 0.8rem; color: #687085; font-weight: 500; padding: 0 0.5rem; }
         .catalog-list { padding: 1.25rem 1.75rem 1.75rem; display: flex; flex-direction: column; gap: 1.25rem; }

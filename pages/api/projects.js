@@ -20,14 +20,29 @@ export default async function handler(req, res) {
     }
 
     if (req.method === "POST") {
-      const { name, country, city, address, propertyType, description, currency, targetBudget, status } = req.body;
+      const {
+        name,
+        country,
+        city,
+        address,
+        propertyType,
+        description,
+        currency,
+        targetBudget,
+        status,
+        compromise_date,
+        final_deed_date,
+      } = req.body;
 
       if (!name) {
         return res.status(400).json({ success: false, error: "Le nom est requis" });
       }
 
       const [project] = await sql`
-        INSERT INTO projects (name, country, city, address, property_type, description, currency, target_budget, status)
+        INSERT INTO projects (
+          name, country, city, address, property_type, description, currency, target_budget, status,
+          compromise_date, final_deed_date
+        )
         VALUES (
           ${name},
           ${country || null},
@@ -37,7 +52,9 @@ export default async function handler(req, res) {
           ${description || null},
           ${currency || "MAD"},
           ${targetBudget || null},
-          ${status || "prospection"}
+          ${status || "prospection"},
+          ${compromise_date || null},
+          ${final_deed_date || null}
         )
         RETURNING *
       `;

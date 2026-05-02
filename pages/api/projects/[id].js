@@ -65,7 +65,8 @@ export default async function handler(req, res) {
         "name", "country", "city", "address", "property_type", "description",
         "status", "currency", "target_budget",
         "land_status", "melkia_reference", "requisition_number", "requisition_date",
-        "title_number", "title_date", "conservation_office", "land_notes"
+        "title_number", "title_date", "conservation_office", "land_notes",
+        "compromise_date", "final_deed_date"
       ];
       const payload = {};
       for (const k of allowed) {
@@ -95,6 +96,8 @@ export default async function handler(req, res) {
       if ("title_date" in p) await sql`UPDATE projects SET title_date = ${p.title_date || null}, updated_at = NOW() WHERE id = ${projectId}`;
       if ("conservation_office" in p) await sql`UPDATE projects SET conservation_office = ${p.conservation_office}, updated_at = NOW() WHERE id = ${projectId}`;
       if ("land_notes" in p) await sql`UPDATE projects SET land_notes = ${p.land_notes}, updated_at = NOW() WHERE id = ${projectId}`;
+      if ("compromise_date" in p) await sql`UPDATE projects SET compromise_date = ${p.compromise_date || null}, updated_at = NOW() WHERE id = ${projectId}`;
+      if ("final_deed_date" in p) await sql`UPDATE projects SET final_deed_date = ${p.final_deed_date || null}, updated_at = NOW() WHERE id = ${projectId}`;
 
       const [project] = await sql`SELECT * FROM projects WHERE id = ${projectId}`;
       return res.json({ success: true, project });
