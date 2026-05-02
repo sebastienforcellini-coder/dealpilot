@@ -78,6 +78,7 @@ export default function ProjectDetail() {
   const [costData, setCostData] = useState({
     type_key: "",
     category: "acquisition",
+    subcategory: "",
     label: "",
     input_mode: "amount",
     amount: "",
@@ -570,6 +571,29 @@ export default function ProjectDetail() {
     autre: "#6B7280",
   };
 
+  // === Sous-catégories par catégorie principale ===
+  const SUBCATEGORIES = {
+    mobilier: [
+      { key: "salon", label: "Salon", icon: "🛋️" },
+      { key: "chambres", label: "Chambres", icon: "🛏️" },
+      { key: "cuisine", label: "Cuisine", icon: "🍳" },
+      { key: "sdb", label: "Salle de bain", icon: "🚿" },
+      { key: "exterieur", label: "Extérieur", icon: "🌿" },
+      { key: "deco", label: "Décoration", icon: "🎨" },
+      { key: "electromenager", label: "Électroménager", icon: "🔌" },
+    ],
+    travaux: [
+      { key: "gros_oeuvre", label: "Gros œuvre", icon: "🏗️" },
+      { key: "electricite", label: "Électricité", icon: "⚡" },
+      { key: "plomberie", label: "Plomberie", icon: "🚿" },
+      { key: "peinture", label: "Peinture / Enduits", icon: "🎨" },
+      { key: "menuiserie", label: "Menuiserie", icon: "🚪" },
+      { key: "tadelakt", label: "Tadelakt / Zellige", icon: "🏛️" },
+      { key: "exterieurs", label: "Extérieurs / Jardin", icon: "🌳" },
+      { key: "autres_travaux", label: "Autres", icon: "🔧" },
+    ],
+  };
+
   const costStatusLabels = {
     estime: "Estimé",
     engage: "Engagé",
@@ -635,6 +659,7 @@ export default function ProjectDetail() {
     setCostData({
       type_key: "",
       category: "acquisition",
+      subcategory: "",
       label: "",
       input_mode: "amount",
       amount: "",
@@ -680,6 +705,7 @@ export default function ProjectDetail() {
     setCostData({
       type_key: item.key,
       category: item.category,
+      subcategory: "",
       label: item.label,
       input_mode: item.input_mode,
       amount: "",
@@ -711,6 +737,7 @@ export default function ProjectDetail() {
     setCostData({
       type_key: cost.type_key || "",
       category: cost.category || "acquisition",
+      subcategory: cost.subcategory || "",
       label: cost.label || "",
       input_mode: cost.input_mode || "amount",
       amount: cost.amount ? String(cost.amount) : "",
@@ -770,6 +797,7 @@ export default function ProjectDetail() {
       const body = {
         type_key: costData.type_key || null,
         category: costData.category,
+        subcategory: costData.subcategory || null,
         label: costData.label,
         amount: finalAmount,
         currency: finalCurrency,
@@ -1038,6 +1066,24 @@ export default function ProjectDetail() {
               </div>
               <h1 className="page-title">{project.name}</h1>
               {project.description && <p className="page-subtitle">{project.description}</p>}
+
+              {/* === BANDEAU ADRESSE + LIEN MAPS === */}
+              {project.address && (
+                <div className="address-banner">
+                  <span className="address-icon">📍</span>
+                  <span className="address-text">{project.address}</span>
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                      [project.address, project.city, project.country].filter(Boolean).join(", ")
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="address-maps-btn"
+                  >
+                    Voir sur Maps ↗
+                  </a>
+                </div>
+              )}
 
               {/* === BANDEAU DATES CLÉS === */}
               {hasKeyDates && (
@@ -1321,6 +1367,123 @@ export default function ProjectDetail() {
                       {["acquisition", "travaux", "mobilier", "autre"].map((cat) => {
                         const items = costsByCategory[cat];
                         if (items.length === 0) return null;
+
+                        // === Pour mobilier et travaux : grouper par sous-catégorie ===
+                        const hasSubcategories = cat === "mobilier" || cat === "travaux";
+                        let groupedItems = null;
+                        if (hasSubcategories) {
+                          const groups = {};
+                          (SUBCATEGORIES[cat] || []).forEach((sub) => {
+                            groups[sub.key] = { sub, items: [], total: 0 };
+                          });
+                          groups["__unclassified"] = { sub: null, items: [], total: 0 };
+                          items.forEach((c) => {
+                            const k = c.subcategory && groups[c.subcategory] ? c.subcategory : "__unclassified";
+                            groups[k].items.push(c);
+                            groups[k].total += Number(c.amount || 0);
+                          });
+                          groupedItems = Object.entries(groups).filter(([_, g]) => g.items.length > 0);
+                        }
+
+                        // Composant inline pour rendre une ligne de coût
+                        const renderCostItem = (c) => (
+                          <div key={c.id} className="cost-item">
+                            <div className="cost-main">
+                              <div className="cost-label-row">
+                                <span className="cost-label">{c.label}</span>
+                                <span className={`cost-status status-${c.status}`}>
+                                  {costStatusLabels[c.status] || c.status}
+                                </span>
+                                {c.is_cash && <span className="cash-tag">💵 CASH</span>}
+                                {c.currency && c.currency !== (project.currency || "MAD") && (
+                                  <span className="currency-tag">{c.currency}</span>
+                                )}
+                              </div>
+                              <div className="cost-meta">
+                                {c.input_mode === "split" && (
+                                  <span className="cost-tag">Déclaré {formatAmount(c.amount_official, project.currency)} + Cash {formatAmount((Number(c.amount_cash) || 0) + (Number(c.amount_cash_fees) || 0), project.currency)}</span>
+                                )}
+                                {c.input_mode === "percentage" && c.percentage && (
+                                  <span className="cost-tag">
+                                    {c.percentage}% × {formatAmount(c.base_amount || 0, project.currency)}
+                                    {c.base_reference === "real" && <span className="base-ref-indicator"> (prix réel)</span>}
+                                  </span>
+                                )}
+                                {c.input_mode === "complex" && (
+                                  <span className="cost-tag">
+                                    {c.percentage}% × {formatAmount(c.base_amount || 0, project.currency)} + TVA {c.tax_rate}% + {formatAmount(c.fixed_fee, project.currency)}
+                                    {c.base_reference === "real" && <span className="base-ref-indicator"> (prix réel)</span>}
+                                  </span>
+                                )}
+                                {c.currency && c.currency !== (project.currency || "MAD") && c.exchange_rate && (
+                                  <span className="cost-tag">
+                                    Taux : 1 {c.currency} = {Number(c.exchange_rate).toFixed(4)} {project.currency}
+                                  </span>
+                                )}
+                                {c.contact_name && <span className="cost-contact">→ {c.contact_name}</span>}
+                              </div>
+                              {c.input_mode === "split" && (
+                                <div className="split-sublines">
+                                  <div className="subline">
+                                    <span className="subline-label">💳 Déclaré / virement</span>
+                                    <span className="subline-value">{formatAmount(c.amount_official, project.currency)}</span>
+                                  </div>
+                                  {Number(c.amount_cash) > 0 && (
+                                    <div className="subline subline-cash">
+                                      <span className="subline-label">💵 Cash</span>
+                                      <span className="subline-value">{formatAmount(c.amount_cash, project.currency)}</span>
+                                    </div>
+                                  )}
+                                  {Number(c.amount_cash_fees) > 0 && (
+                                    <div className="subline subline-cash">
+                                      <span className="subline-label">💵 Frais d'acquisition</span>
+                                      <span className="subline-value">{formatAmount(c.amount_cash_fees, project.currency)}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                            <div className="cost-right">
+                              {renderCostAmount(c)}
+                            </div>
+                            <div className="cost-menu-wrapper">
+                              <button
+                                className="menu-trigger"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCostMenuOpenId(costMenuOpenId === c.id ? null : c.id);
+                                }}
+                                aria-label="Options"
+                              >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                  <circle cx="12" cy="5" r="2" />
+                                  <circle cx="12" cy="12" r="2" />
+                                  <circle cx="12" cy="19" r="2" />
+                                </svg>
+                              </button>
+                              {costMenuOpenId === c.id && (
+                                <>
+                                  <div className="menu-backdrop" onClick={() => setCostMenuOpenId(null)} />
+                                  <div className="menu-dropdown">
+                                    <button className="menu-item" onClick={() => openEditCost(c)}>
+                                      ✏️ Modifier
+                                    </button>
+                                    <button
+                                      className="menu-item menu-item-danger"
+                                      onClick={() => {
+                                        setCostDeleteId(c.id);
+                                        setCostMenuOpenId(null);
+                                      }}
+                                    >
+                                      🗑️ Supprimer
+                                    </button>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        );
+
                         return (
                           <div key={cat} className="cost-category">
                             <div className="cat-header">
@@ -1331,103 +1494,23 @@ export default function ProjectDetail() {
                               <span className="cat-total">{formatAmount(totalByCategory[cat], project.currency)}</span>
                             </div>
                             <div className="cost-items">
-                              {items.map((c) => (
-                                <div key={c.id} className="cost-item">
-                                  <div className="cost-main">
-                                    <div className="cost-label-row">
-                                      <span className="cost-label">{c.label}</span>
-                                      <span className={`cost-status status-${c.status}`}>
-                                        {costStatusLabels[c.status] || c.status}
+                              {hasSubcategories && groupedItems ? (
+                                groupedItems.map(([key, group]) => (
+                                  <div key={key} className="subcategory-group">
+                                    <div className="subcategory-header">
+                                      <span className="subcategory-label">
+                                        {group.sub ? `${group.sub.icon} ${group.sub.label}` : "📦 Non classé"}
                                       </span>
-                                      {c.is_cash && <span className="cash-tag">💵 CASH</span>}
-                                      {c.currency && c.currency !== (project.currency || "MAD") && (
-                                        <span className="currency-tag">{c.currency}</span>
-                                      )}
+                                      <span className="subcategory-total">
+                                        {formatAmount(group.total, project.currency)}
+                                      </span>
                                     </div>
-                                    <div className="cost-meta">
-                                      {c.input_mode === "split" && (
-                                        <span className="cost-tag">Déclaré {formatAmount(c.amount_official, project.currency)} + Cash {formatAmount((Number(c.amount_cash) || 0) + (Number(c.amount_cash_fees) || 0), project.currency)}</span>
-                                      )}
-                                      {c.input_mode === "percentage" && c.percentage && (
-                                        <span className="cost-tag">
-                                          {c.percentage}% × {formatAmount(c.base_amount || 0, project.currency)}
-                                          {c.base_reference === "real" && <span className="base-ref-indicator"> (prix réel)</span>}
-                                        </span>
-                                      )}
-                                      {c.input_mode === "complex" && (
-                                        <span className="cost-tag">
-                                          {c.percentage}% × {formatAmount(c.base_amount || 0, project.currency)} + TVA {c.tax_rate}% + {formatAmount(c.fixed_fee, project.currency)}
-                                          {c.base_reference === "real" && <span className="base-ref-indicator"> (prix réel)</span>}
-                                        </span>
-                                      )}
-                                      {c.currency && c.currency !== (project.currency || "MAD") && c.exchange_rate && (
-                                        <span className="cost-tag">
-                                          Taux : 1 {c.currency} = {Number(c.exchange_rate).toFixed(4)} {project.currency}
-                                        </span>
-                                      )}
-                                      {c.contact_name && <span className="cost-contact">→ {c.contact_name}</span>}
-                                    </div>
-                                    {c.input_mode === "split" && (
-                                      <div className="split-sublines">
-                                        <div className="subline">
-                                          <span className="subline-label">💳 Déclaré / virement</span>
-                                          <span className="subline-value">{formatAmount(c.amount_official, project.currency)}</span>
-                                        </div>
-                                        {Number(c.amount_cash) > 0 && (
-                                          <div className="subline subline-cash">
-                                            <span className="subline-label">💵 Cash</span>
-                                            <span className="subline-value">{formatAmount(c.amount_cash, project.currency)}</span>
-                                          </div>
-                                        )}
-                                        {Number(c.amount_cash_fees) > 0 && (
-                                          <div className="subline subline-cash">
-                                            <span className="subline-label">💵 Frais d'acquisition</span>
-                                            <span className="subline-value">{formatAmount(c.amount_cash_fees, project.currency)}</span>
-                                          </div>
-                                        )}
-                                      </div>
-                                    )}
+                                    {group.items.map((c) => renderCostItem(c))}
                                   </div>
-                                  <div className="cost-right">
-                                    {renderCostAmount(c)}
-                                  </div>
-                                  <div className="cost-menu-wrapper">
-                                    <button
-                                      className="menu-trigger"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setCostMenuOpenId(costMenuOpenId === c.id ? null : c.id);
-                                      }}
-                                      aria-label="Options"
-                                    >
-                                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                                        <circle cx="12" cy="5" r="2" />
-                                        <circle cx="12" cy="12" r="2" />
-                                        <circle cx="12" cy="19" r="2" />
-                                      </svg>
-                                    </button>
-                                    {costMenuOpenId === c.id && (
-                                      <>
-                                        <div className="menu-backdrop" onClick={() => setCostMenuOpenId(null)} />
-                                        <div className="menu-dropdown">
-                                          <button className="menu-item" onClick={() => openEditCost(c)}>
-                                            ✏️ Modifier
-                                          </button>
-                                          <button
-                                            className="menu-item menu-item-danger"
-                                            onClick={() => {
-                                              setCostDeleteId(c.id);
-                                              setCostMenuOpenId(null);
-                                            }}
-                                          >
-                                            🗑️ Supprimer
-                                          </button>
-                                        </div>
-                                      </>
-                                    )}
-                                  </div>
-                                </div>
-                              ))}
+                                ))
+                              ) : (
+                                items.map((c) => renderCostItem(c))
+                              )}
                             </div>
                           </div>
                         );
@@ -1910,7 +1993,7 @@ export default function ProjectDetail() {
                 <div className="row">
                   <label>
                     <span>Catégorie *</span>
-                    <select required value={costData.category} onChange={(e) => setCostData({ ...costData, category: e.target.value })}>
+                    <select required value={costData.category} onChange={(e) => setCostData({ ...costData, category: e.target.value, subcategory: "" })}>
                       <option value="acquisition">🏠 Acquisition</option>
                       <option value="travaux">🔨 Travaux</option>
                       <option value="mobilier">🪑 Mobilier & Déco</option>
@@ -1926,6 +2009,18 @@ export default function ProjectDetail() {
                     </select>
                   </label>
                 </div>
+
+                {(costData.category === "mobilier" || costData.category === "travaux") && (
+                  <label>
+                    <span>Sous-catégorie {costData.category === "mobilier" ? "(par pièce)" : "(par corps de métier)"}</span>
+                    <select value={costData.subcategory} onChange={(e) => setCostData({ ...costData, subcategory: e.target.value })}>
+                      <option value="">— Aucune sous-catégorie —</option>
+                      {SUBCATEGORIES[costData.category].map((sub) => (
+                        <option key={sub.key} value={sub.key}>{sub.icon} {sub.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
 
                 <label>
                   <span>Libellé *</span>
@@ -2382,6 +2477,19 @@ export default function ProjectDetail() {
         .section-divider span { color: #0B1320; font-size: 0.85rem; font-weight: 600; letter-spacing: 0.05em; }
         /* === BANDEAU DATES CLÉS === */
         .key-dates-banner { display: flex; gap: 1.25rem; flex-wrap: wrap; margin-top: 1rem; padding: 0.75rem 1rem; background: linear-gradient(90deg, rgba(212, 175, 55, 0.08), rgba(212, 175, 55, 0.02)); border: 1px solid rgba(212, 175, 55, 0.2); border-radius: 10px; }
+        /* === BANDEAU ADRESSE === */
+        .address-banner { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.85rem; padding: 0.65rem 1rem; background: #F7F8FA; border: 1px solid #EEF0F4; border-radius: 10px; font-size: 0.9rem; }
+        .address-icon { font-size: 1rem; }
+        .address-text { color: #0B1320; flex: 1; min-width: 200px; line-height: 1.4; }
+        .address-maps-btn { display: inline-flex; align-items: center; padding: 0.35rem 0.85rem; background: #FFFFFF; border: 1px solid #D4AF37; border-radius: 8px; color: #9a7f2a; font-size: 0.82rem; font-weight: 500; text-decoration: none; transition: all 0.15s; white-space: nowrap; }
+        .address-maps-btn:hover { background: #FEFBF2; transform: translateY(-1px); box-shadow: 0 2px 6px rgba(212, 175, 55, 0.25); }
+        /* === GROUPES SOUS-CATÉGORIES === */
+        .subcategory-group { border-bottom: 1px solid #F3F4F6; }
+        .subcategory-group:last-child { border-bottom: none; }
+        .subcategory-header { display: flex; justify-content: space-between; align-items: center; padding: 0.55rem 1.25rem; background: #FAFBFC; border-top: 1px solid #F3F4F6; }
+        .subcategory-group:first-child .subcategory-header { border-top: none; }
+        .subcategory-label { font-size: 0.8rem; font-weight: 600; color: #4B5563; }
+        .subcategory-total { font-size: 0.85rem; font-weight: 600; color: #0B1320; }
         .key-date-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.88rem; color: #0B1320; }
         .key-date-icon { font-size: 1rem; }
         .key-date-label { color: #687085; font-weight: 500; }

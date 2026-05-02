@@ -9,6 +9,7 @@ export default async function handler(req, res) {
       const {
         project_id,
         category,
+        subcategory,
         label,
         amount,
         currency,
@@ -44,7 +45,7 @@ export default async function handler(req, res) {
 
       const [cost] = await sql`
         INSERT INTO costs (
-          project_id, category, label, amount, currency, percentage,
+          project_id, category, subcategory, label, amount, currency, percentage,
           base_amount, tax_rate, fixed_fee, input_mode, type_key,
           contact_id, status, paid, paid_date, due_date, compromise_date, notes, sort_order,
           amount_official, amount_cash, amount_cash_fees, base_reference, is_cash,
@@ -52,6 +53,7 @@ export default async function handler(req, res) {
         ) VALUES (
           ${Number(project_id)},
           ${category},
+          ${subcategory || null},
           ${label},
           ${amount ? Number(amount) : 0},
           ${currency || "MAD"},

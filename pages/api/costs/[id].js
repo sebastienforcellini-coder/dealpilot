@@ -24,6 +24,7 @@ export default async function handler(req, res) {
       const p = req.body || {};
 
       if ("category" in p) await sql`UPDATE costs SET category = ${p.category}, updated_at = NOW() WHERE id = ${costId}`;
+      if ("subcategory" in p) await sql`UPDATE costs SET subcategory = ${p.subcategory || null}, updated_at = NOW() WHERE id = ${costId}`;
       if ("label" in p) await sql`UPDATE costs SET label = ${p.label}, updated_at = NOW() WHERE id = ${costId}`;
       if ("amount" in p) await sql`UPDATE costs SET amount = ${p.amount ? Number(p.amount) : 0}, updated_at = NOW() WHERE id = ${costId}`;
       if ("currency" in p) await sql`UPDATE costs SET currency = ${p.currency}, updated_at = NOW() WHERE id = ${costId}`;
